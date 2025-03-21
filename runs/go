@@ -4,137 +4,137 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 main() {
-    log "INFO" "Starting Go setup"
+  log "INFO" "Starting Go setup"
 
-    init_homebrew
+  init_homebrew
 
-    log "INFO" "Installing Go programming language"
-    install_package "go" || {
-        log "WARN" "Failed to install Go with Homebrew, trying alternatives"
-
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            # Alternative installation method
-            log "INFO" "Trying official Go installer"
-            local go_version="1.22.0" # Update to latest stable
-            local arch="amd64"
-
-            if [[ "$ARCH" == "arm64" ]]; then
-                arch="arm64"
-            fi
-
-            local os_name="${OS,,}"
-            # Fix for case-sensitivity in Darwin vs darwin
-            if [[ "$os_name" == "darwin" ]]; then
-                os_name="darwin"
-            elif [[ "$os_name" == "linux" ]]; then
-                os_name="linux"
-            fi
-
-            local go_package="go${go_version}.${os_name}-${arch}.tar.gz"
-            local download_url="https://go.dev/dl/${go_package}"
-
-            execute "curl -fsSL ${download_url} -o /tmp/${go_package}" "Downloading Go"
-            execute "sudo rm -rf /usr/local/go" "Removing any existing Go installation"
-            execute "sudo tar -C /usr/local -xzf /tmp/${go_package}" "Extracting Go to /usr/local"
-            execute "rm /tmp/${go_package}" "Removing downloaded archive"
-
-            # Add to PATH if not already there
-            if [[ ":$PATH:" != *":/usr/local/go/bin:"* ]]; then
-                log "INFO" "Adding Go to PATH"
-                execute "mkdir -p /etc/profile.d" "Creating profile.d directory if needed"
-                execute "echo 'export PATH=\$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh" "Creating Go path file"
-                execute "chmod +x /etc/profile.d/go.sh" "Making Go path file executable"
-                export PATH="$PATH:/usr/local/go/bin"
-            fi
-        else
-            log "DRY" "Would install Go using the official installer"
-        fi
-    }
-
-    # Determine Go directories
-    if command_exists go; then
-        go_root=$(go env GOROOT 2>/dev/null || echo "/usr/local/go")
-        go_path=$(go env GOPATH 2>/dev/null || echo "$HOME/go")
-    else
-        go_root="/usr/local/go"
-        go_path="$HOME/go"
-    fi
+  log "INFO" "Installing Go programming language"
+  install_package "go" || {
+    log "WARN" "Failed to install Go with Homebrew, trying alternatives"
 
     if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-        log "INFO" "Creating Go directories"
-        mkdir -p "$go_path/bin" "$go_path/src" "$go_path/pkg" 2>/dev/null || log "WARN" "Failed to create Go directories"
+      # Alternative installation method
+      log "INFO" "Trying official Go installer"
+      local go_version="1.22.0" # Update to latest stable
+      local arch="amd64"
+
+      if [[ "$ARCH" == "arm64" ]]; then
+        arch="arm64"
+      fi
+
+      local os_name="${OS,,}"
+      # Fix for case-sensitivity in Darwin vs darwin
+      if [[ "$os_name" == "darwin" ]]; then
+        os_name="darwin"
+      elif [[ "$os_name" == "linux" ]]; then
+        os_name="linux"
+      fi
+
+      local go_package="go${go_version}.${os_name}-${arch}.tar.gz"
+      local download_url="https://go.dev/dl/${go_package}"
+
+      execute "curl -fsSL ${download_url} -o /tmp/${go_package}" "Downloading Go"
+      execute "sudo rm -rf /usr/local/go" "Removing any existing Go installation"
+      execute "sudo tar -C /usr/local -xzf /tmp/${go_package}" "Extracting Go to /usr/local"
+      execute "rm /tmp/${go_package}" "Removing downloaded archive"
+
+      # Add to PATH if not already there
+      if [[ ":$PATH:" != *":/usr/local/go/bin:"* ]]; then
+        log "INFO" "Adding Go to PATH"
+        execute "mkdir -p /etc/profile.d" "Creating profile.d directory if needed"
+        execute "echo 'export PATH=\$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh" "Creating Go path file"
+        execute "chmod +x /etc/profile.d/go.sh" "Making Go path file executable"
+        export PATH="$PATH:/usr/local/go/bin"
+      fi
     else
-        log "DRY" "Would create Go directories"
+      log "DRY" "Would install Go using the official installer"
     fi
+  }
 
-    # Update profile for Go environment
-    update_profile() {
-        local profile_file="$1"
+  # Determine Go directories
+  if command_exists go; then
+    go_root=$(go env GOROOT 2>/dev/null || echo "/usr/local/go")
+    go_path=$(go env GOPATH 2>/dev/null || echo "$HOME/go")
+  else
+    go_root="/usr/local/go"
+    go_path="$HOME/go"
+  fi
 
-        if [[ -f "$profile_file" ]]; then
-            log "INFO" "Updating Go environment in $profile_file"
+  if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    log "INFO" "Creating Go directories"
+    mkdir -p "$go_path/bin" "$go_path/src" "$go_path/pkg" 2>/dev/null || log "WARN" "Failed to create Go directories"
+  else
+    log "DRY" "Would create Go directories"
+  fi
 
-            go_config="
+  # Update profile for Go environment
+  update_profile() {
+    local profile_file="$1"
+
+    if [[ -f "$profile_file" ]]; then
+      log "INFO" "Updating Go environment in $profile_file"
+
+      go_config="
 # Go environment
 export GOROOT=$(command -v go >/dev/null 2>&1 && go env GOROOT 2>/dev/null || echo '/usr/local/go')
 export GOPATH=${go_path}
 export PATH=\"\$PATH:\$GOPATH/bin:/usr/local/go/bin\"
 "
 
-            if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                if ! grep -q "Go environment" "$profile_file"; then
-                    backup_file "$profile_file"
-                    echo "$go_config" >>"$profile_file" || log "WARN" "Failed to update $profile_file"
-                else
-                    log "INFO" "Go environment already configured in $profile_file"
-                fi
-            else
-                log "DRY" "Would add Go environment to $profile_file"
-            fi
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        if ! grep -q "Go environment" "$profile_file"; then
+          backup_file "$profile_file"
+          echo "$go_config" >>"$profile_file" || log "WARN" "Failed to update $profile_file"
+        else
+          log "INFO" "Go environment already configured in $profile_file"
         fi
-    }
-
-    # Update profiles for both Bash and Zsh
-    update_profile "$HOME/.zprofile"
-    update_profile "$HOME/.bash_profile"
-
-    # Add Go bin to current PATH
-    export PATH="$PATH:$go_path/bin:/usr/local/go/bin"
-
-    # Install common Go tools
-    if command_exists go && [[ ${DRY_RUN:-0} -eq 0 ]]; then
-        log "INFO" "Installing common Go tools"
-        go_tools=(
-            "golang.org/x/tools/gopls@latest"          # Go language server
-            "github.com/go-delve/delve/cmd/dlv@latest" # Go debugger
-            "golang.org/x/lint/golint@latest"          # Go linter
-            "github.com/fatih/gomodifytags@latest"     # Go struct tag modifier
-            "github.com/cweill/gotests/...@latest"     # Go test generator
-        )
-
-        for tool in "${go_tools[@]}"; do
-            tool_name=$(basename "${tool%@*}")
-            log "INFO" "Installing $tool_name"
-            go install "$tool" 2>/dev/null || log "WARN" "Failed to install $tool"
-        done
-    elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would install common Go tools"
+      else
+        log "DRY" "Would add Go environment to $profile_file"
+      fi
     fi
+  }
 
-    if command_exists go; then
-        go_version=$(go version)
-        log "INFO" "Go installed successfully: $go_version"
-    else
-        log "WARN" "Go installation could not be verified"
-    fi
+  # Update profiles for both Bash and Zsh
+  update_profile "$HOME/.zprofile"
+  update_profile "$HOME/.bash_profile"
 
-    log "SUCCESS" "Go setup completed"
-    return 0
+  # Add Go bin to current PATH
+  export PATH="$PATH:$go_path/bin:/usr/local/go/bin"
+
+  # Install common Go tools
+  if command_exists go && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    log "INFO" "Installing common Go tools"
+    go_tools=(
+      "golang.org/x/tools/gopls@latest"          # Go language server
+      "github.com/go-delve/delve/cmd/dlv@latest" # Go debugger
+      "golang.org/x/lint/golint@latest"          # Go linter
+      "github.com/fatih/gomodifytags@latest"     # Go struct tag modifier
+      "github.com/cweill/gotests/...@latest"     # Go test generator
+    )
+
+    for tool in "${go_tools[@]}"; do
+      tool_name=$(basename "${tool%@*}")
+      log "INFO" "Installing $tool_name"
+      go install "$tool" 2>/dev/null || log "WARN" "Failed to install $tool"
+    done
+  elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would install common Go tools"
+  fi
+
+  if command_exists go; then
+    go_version=$(go version)
+    log "INFO" "Go installed successfully: $go_version"
+  else
+    log "WARN" "Go installation could not be verified"
+  fi
+
+  log "SUCCESS" "Go setup completed"
+  return 0
 }
 
 main

@@ -7,9 +7,9 @@ set -euo pipefail
 
 SCRIPT_PIPE=0
 if [ -t 0 ]; then
-    SCRIPT_PIPE=0
+  SCRIPT_PIPE=0
 else
-    SCRIPT_PIPE=1
+  SCRIPT_PIPE=1
 fi
 
 export DEV_ENV="${DEV_ENV:-$HOME/dev}"
@@ -19,8 +19,8 @@ export REPO_BRANCH="main"
 
 dry_run=0
 if [[ "${1:-}" == "--dry" ]]; then
-    dry_run=1
-    export DRY_RUN=1
+  dry_run=1
+  export DRY_RUN=1
 fi
 
 # Colors for logging
@@ -32,261 +32,261 @@ COLOR_CYAN="\033[1;36m"
 COLOR_RESET="\033[0m"
 
 log() {
-    local level="$1"
-    local message="$2"
-    local color=""
+  local level="$1"
+  local message="$2"
+  local color=""
 
-    case "$level" in
-    SUCCESS) color="$COLOR_GREEN" ;;
-    INFO) color="$COLOR_BLUE" ;;
-    WARN) color="$COLOR_YELLOW" ;;
-    ERROR) color="$COLOR_RED" ;;
-    DRY) color="$COLOR_CYAN" ;;
-    esac
+  case "$level" in
+  SUCCESS) color="$COLOR_GREEN" ;;
+  INFO) color="$COLOR_BLUE" ;;
+  WARN) color="$COLOR_YELLOW" ;;
+  ERROR) color="$COLOR_RED" ;;
+  DRY) color="$COLOR_CYAN" ;;
+  esac
 
-    if [[ $dry_run -eq 1 && "$level" != "DRY" ]]; then
-        echo -e "${COLOR_CYAN}[DRY_RUN]${COLOR_RESET} $message"
-    else
-        echo -e "${color}[$level]${COLOR_RESET} $message"
-    fi
+  if [[ $dry_run -eq 1 && "$level" != "DRY" ]]; then
+    echo -e "${COLOR_CYAN}[DRY_RUN]${COLOR_RESET} $message"
+  else
+    echo -e "${color}[$level]${COLOR_RESET} $message"
+  fi
 }
 
 command_exists() {
-    command -v "$1" &>/dev/null
+  command -v "$1" &>/dev/null
 }
 
 execute() {
-    local cmd="$1"
-    local description="${2:-Executing command}"
+  local cmd="$1"
+  local description="${2:-Executing command}"
 
-    if [[ $dry_run -eq 1 ]]; then
-        log "DRY" "$description: $cmd"
-        return 0
+  if [[ $dry_run -eq 1 ]]; then
+    log "DRY" "$description: $cmd"
+    return 0
+  else
+    log "INFO" "$description"
+    if eval "$cmd"; then
+      return 0
     else
-        log "INFO" "$description"
-        if eval "$cmd"; then
-            return 0
-        else
-            local exit_code=$?
-            log "ERROR" "Command failed with exit code $exit_code: $cmd"
-            return $exit_code
-        fi
+      local exit_code=$?
+      log "ERROR" "Command failed with exit code $exit_code: $cmd"
+      return $exit_code
     fi
+  fi
 }
 
 init_homebrew() {
-    local OS
-    OS="$(uname -s)"
-    local ARCH
-    ARCH="$(uname -m)"
+  local OS
+  OS="$(uname -s)"
+  local ARCH
+  ARCH="$(uname -m)"
 
-    if [[ "$OS" == "Darwin" ]]; then
-        if [[ "$ARCH" == "arm64" ]] && [[ -f /opt/homebrew/bin/brew ]]; then
-            eval "$(/opt/homebrew/bin/brew shellenv)"
-        elif [[ -f /usr/local/bin/brew ]]; then
-            eval "$(/usr/local/bin/brew shellenv)"
-        fi
-    elif [[ "$OS" == "Linux" ]]; then
-        if [[ -d "$HOME/.linuxbrew" ]]; then
-            eval "$("$HOME"/.linuxbrew/bin/brew shellenv)"
-        elif [[ -d "/home/linuxbrew/.linuxbrew" ]]; then
-            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-        fi
+  if [[ "$OS" == "Darwin" ]]; then
+    if [[ "$ARCH" == "arm64" ]] && [[ -f /opt/homebrew/bin/brew ]]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -f /usr/local/bin/brew ]]; then
+      eval "$(/usr/local/bin/brew shellenv)"
     fi
+  elif [[ "$OS" == "Linux" ]]; then
+    if [[ -d "$HOME/.linuxbrew" ]]; then
+      eval "$("$HOME"/.linuxbrew/bin/brew shellenv)"
+    elif [[ -d "/home/linuxbrew/.linuxbrew" ]]; then
+      eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+    fi
+  fi
 }
 
 ensure_homebrew_in_path() {
-    local OS
-    OS="$(uname -s)"
-    local brew_bin=""
+  local OS
+  OS="$(uname -s)"
+  local brew_bin=""
 
-    if [[ "$OS" == "Darwin" ]]; then
-        if [[ "$(uname -m)" == "arm64" ]] && [[ -f /opt/homebrew/bin/brew ]]; then
-            brew_bin="/opt/homebrew/bin"
-        elif [[ -f /usr/local/bin/brew ]]; then
-            brew_bin="/usr/local/bin"
-        fi
-    elif [[ "$OS" == "Linux" ]]; then
-        if [[ -d "$HOME/.linuxbrew" ]]; then
-            brew_bin="$HOME/.linuxbrew/bin"
-        elif [[ -d "/home/linuxbrew/.linuxbrew" ]]; then
-            brew_bin="/home/linuxbrew/.linuxbrew/bin"
-        fi
+  if [[ "$OS" == "Darwin" ]]; then
+    if [[ "$(uname -m)" == "arm64" ]] && [[ -f /opt/homebrew/bin/brew ]]; then
+      brew_bin="/opt/homebrew/bin"
+    elif [[ -f /usr/local/bin/brew ]]; then
+      brew_bin="/usr/local/bin"
     fi
+  elif [[ "$OS" == "Linux" ]]; then
+    if [[ -d "$HOME/.linuxbrew" ]]; then
+      brew_bin="$HOME/.linuxbrew/bin"
+    elif [[ -d "/home/linuxbrew/.linuxbrew" ]]; then
+      brew_bin="/home/linuxbrew/.linuxbrew/bin"
+    fi
+  fi
 
-    if [[ -n "$brew_bin" ]]; then
-        export PATH="$brew_bin:$PATH"
-        log "INFO" "Added $brew_bin to PATH"
-    fi
+  if [[ -n "$brew_bin" ]]; then
+    export PATH="$brew_bin:$PATH"
+    log "INFO" "Added $brew_bin to PATH"
+  fi
 }
 
 install_homebrew() {
-    log "INFO" "Installing Homebrew..."
-    if [[ $dry_run -eq 0 ]]; then
+  log "INFO" "Installing Homebrew..."
+  if [[ $dry_run -eq 0 ]]; then
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || {
+      log "ERROR" "Failed to install Homebrew"
+      log "INFO" "Trying alternative installation method..."
+
+      # For Linux systems that might need dependencies
+      if [[ "$(uname -s)" == "Linux" ]]; then
+        log "INFO" "Installing dependencies for Homebrew..."
+
+        if command_exists apt; then
+          execute "sudo apt update && sudo apt install -y build-essential curl file git" "Installing Homebrew dependencies with apt"
+        elif command_exists pacman; then
+          execute "sudo pacman -Sy --noconfirm base-devel curl file git" "Installing Homebrew dependencies with pacman"
+        elif command_exists apk; then
+          execute "sudo apk add --no-cache build-base curl file git" "Installing Homebrew dependencies with apk"
+        fi
+
+        # Try installation again
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || {
-            log "ERROR" "Failed to install Homebrew"
-            log "INFO" "Trying alternative installation method..."
-
-            # For Linux systems that might need dependencies
-            if [[ "$(uname -s)" == "Linux" ]]; then
-                log "INFO" "Installing dependencies for Homebrew..."
-
-                if command_exists apt; then
-                    execute "sudo apt update && sudo apt install -y build-essential curl file git" "Installing Homebrew dependencies with apt"
-                elif command_exists pacman; then
-                    execute "sudo pacman -Sy --noconfirm base-devel curl file git" "Installing Homebrew dependencies with pacman"
-                elif command_exists apk; then
-                    execute "sudo apk add --no-cache build-base curl file git" "Installing Homebrew dependencies with apk"
-                fi
-
-                # Try installation again
-                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || {
-                    log "ERROR" "Failed to install Homebrew again"
-                    return 1
-                }
-            else
-                return 1
-            fi
+          log "ERROR" "Failed to install Homebrew again"
+          return 1
         }
-    fi
+      else
+        return 1
+      fi
+    }
+  fi
 
-    return 0
+  return 0
 }
 
 setup() {
-    local OS
-    OS="$(uname -s)"
-    local ARCH
-    ARCH="$(uname -m)"
+  local OS
+  OS="$(uname -s)"
+  local ARCH
+  ARCH="$(uname -m)"
 
-    log "INFO" "Detected $OS system on $ARCH architecture"
+  log "INFO" "Detected $OS system on $ARCH architecture"
 
-    if [[ "$OS" != "Darwin" && "$OS" != "Linux" ]]; then
-        log "ERROR" "Unsupported operating system: $OS"
-        exit 1
-    fi
+  if [[ "$OS" != "Darwin" && "$OS" != "Linux" ]]; then
+    log "ERROR" "Unsupported operating system: $OS"
+    exit 1
+  fi
 
-    export HOMEBREW_NO_ENV_HINTS=1
-    export HOMEBREW_NO_INSTALL_CLEANUP=1
+  export HOMEBREW_NO_ENV_HINTS=1
+  export HOMEBREW_NO_INSTALL_CLEANUP=1
 
-    if ! command_exists brew; then
-        install_homebrew
-        init_homebrew
+  if ! command_exists brew; then
+    install_homebrew
+    init_homebrew
+  else
+    log "INFO" "Homebrew is already installed"
+    init_homebrew
+  fi
+
+  ensure_homebrew_in_path
+
+  log "INFO" "Checking for potential package conflicts"
+
+  if command_exists brew; then
+    if [[ $dry_run -eq 0 ]]; then
+      brew analytics off 2>/dev/null || log "WARN" "Failed to disable Homebrew analytics"
     else
-        log "INFO" "Homebrew is already installed"
-        init_homebrew
+      log "DRY" "Would disable Homebrew analytics"
     fi
+  fi
 
-    ensure_homebrew_in_path
+  if ! command_exists git; then
+    log "INFO" "Installing Git..."
+    if [[ $dry_run -eq 0 ]]; then
+      brew install git || {
+        log "ERROR" "Failed to install Git with Homebrew"
 
-    log "INFO" "Checking for potential package conflicts"
+        # Fallback to system package manager
+        if [[ "$OS" == "Linux" ]]; then
+          log "INFO" "Trying to install Git with system package manager..."
 
-    if command_exists brew; then
-        if [[ $dry_run -eq 0 ]]; then
-            brew analytics off 2>/dev/null || log "WARN" "Failed to disable Homebrew analytics"
+          if command_exists apt; then
+            execute "sudo apt update && sudo apt install -y git" "Installing Git with apt"
+          elif command_exists pacman; then
+            execute "sudo pacman -Sy --noconfirm git" "Installing Git with pacman"
+          elif command_exists apk; then
+            execute "sudo apk add --no-cache git" "Installing Git with apk"
+          elif command_exists dnf; then
+            execute "sudo dnf install -y git" "Installing Git with dnf"
+          elif command_exists yum; then
+            execute "sudo yum install -y git" "Installing Git with yum"
+          else
+            log "ERROR" "No supported package manager found"
+            exit 1
+          fi
         else
-            log "DRY" "Would disable Homebrew analytics"
+          exit 1
         fi
+      }
     fi
+  else
+    log "INFO" "Git is already installed"
+  fi
 
-    if ! command_exists git; then
-        log "INFO" "Installing Git..."
-        if [[ $dry_run -eq 0 ]]; then
-            brew install git || {
-                log "ERROR" "Failed to install Git with Homebrew"
+  if [[ ! -d "$HOME/personal" ]]; then
+    log "INFO" "Creating personal directory..."
+    execute "mkdir -p \"$HOME/personal\"" "Creating personal directory"
+  else
+    log "INFO" "Personal directory already exists"
+  fi
 
-                # Fallback to system package manager
-                if [[ "$OS" == "Linux" ]]; then
-                    log "INFO" "Trying to install Git with system package manager..."
+  backup_dir="$HOME/personal/env-backup/$(date +%Y%m%d_%H%M%S)"
+  if [[ ! -d "$backup_dir" ]]; then
+    log "INFO" "Creating env-backup directory..."
+    execute "mkdir -p \"$backup_dir\"" "Creating backup directory"
+  fi
 
-                    if command_exists apt; then
-                        execute "sudo apt update && sudo apt install -y git" "Installing Git with apt"
-                    elif command_exists pacman; then
-                        execute "sudo pacman -Sy --noconfirm git" "Installing Git with pacman"
-                    elif command_exists apk; then
-                        execute "sudo apk add --no-cache git" "Installing Git with apk"
-                    elif command_exists dnf; then
-                        execute "sudo dnf install -y git" "Installing Git with dnf"
-                    elif command_exists yum; then
-                        execute "sudo yum install -y git" "Installing Git with yum"
-                    else
-                        log "ERROR" "No supported package manager found"
-                        exit 1
-                    fi
-                else
-                    exit 1
-                fi
-            }
-        fi
-    else
-        log "INFO" "Git is already installed"
-    fi
+  if [[ ! -d "$DEV_ENV" ]]; then
+    log "INFO" "Cloning dev-environment repository..."
+    execute "git clone -b \"$REPO_BRANCH\" \"$REPO_URL\" \"$DEV_ENV\"" "Cloning repository"
+  else
+    log "INFO" "Development directory already exists"
+    log "INFO" "Updating repository..."
+    execute "cd \"$DEV_ENV\" && git pull" "Updating repository"
+  fi
 
-    if [[ ! -d "$HOME/personal" ]]; then
-        log "INFO" "Creating personal directory..."
-        execute "mkdir -p \"$HOME/personal\"" "Creating personal directory"
-    else
-        log "INFO" "Personal directory already exists"
-    fi
+  if [[ -f "$DEV_ENV/utilities" ]]; then
+    log "INFO" "Sourcing utilities script..."
+    source "$DEV_ENV/utilities" || {
+      log "WARN" "Failed to source utilities script, continuing with limited functionality"
+    }
+  fi
 
-    backup_dir="$HOME/personal/env-backup/$(date +%Y%m%d_%H%M%S)"
-    if [[ ! -d "$backup_dir" ]]; then
-        log "INFO" "Creating env-backup directory..."
-        execute "mkdir -p \"$backup_dir\"" "Creating backup directory"
-    fi
+  log "INFO" "Initializing submodules..."
+  execute "cd \"$DEV_ENV\" && ./init" "Initializing submodules"
 
-    if [[ ! -d "$DEV_ENV" ]]; then
-        log "INFO" "Cloning dev-environment repository..."
-        execute "git clone -b \"$REPO_BRANCH\" \"$REPO_URL\" \"$DEV_ENV\"" "Cloning repository"
-    else
-        log "INFO" "Development directory already exists"
-        log "INFO" "Updating repository..."
-        execute "cd \"$DEV_ENV\" && git pull" "Updating repository"
-    fi
+  log "INFO" "Running installation scripts..."
+  execute "cd \"$DEV_ENV\" && ./run" "Running installation scripts"
 
-    if [[ -f "$DEV_ENV/utilities" ]]; then
-        log "INFO" "Sourcing utilities script..."
-        source "$DEV_ENV/utilities" || {
-            log "WARN" "Failed to source utilities script, continuing with limited functionality"
-        }
-    fi
+  log "INFO" "Configuring the environment..."
+  execute "cd \"$DEV_ENV\" && ./dev-env" "Configuring environment"
 
-    log "INFO" "Initializing submodules..."
-    execute "cd \"$DEV_ENV\" && ./init" "Initializing submodules"
+  log "SUCCESS" "Bootstrap completed successfully!"
 
-    log "INFO" "Running installation scripts..."
-    execute "cd \"$DEV_ENV\" && ./run" "Running installation scripts"
+  echo ""
+  echo "-----------------------------------------------------"
+  echo "           Dev Environment setup completed           "
+  echo "-----------------------------------------------------"
+  echo ""
 
-    log "INFO" "Configuring the environment..."
-    execute "cd \"$DEV_ENV\" && ./dev-env" "Configuring environment"
-
-    log "SUCCESS" "Bootstrap completed successfully!"
-
+  brew_path=$(brew --prefix 2>/dev/null)
+  if [[ -n "$brew_path" && -f "$brew_path/bin/zsh" ]]; then
+    echo "To change your default shell to Zsh, run:"
+    echo "  chsh -s $brew_path/bin/zsh"
     echo ""
-    echo "-----------------------------------------------------"
-    echo "           Dev Environment setup completed           "
-    echo "-----------------------------------------------------"
+    echo "To start using Zsh immediately without logging out, run:"
+    echo "  $brew_path/bin/zsh"
     echo ""
+  elif command_exists zsh; then
+    echo "To change your default shell to Zsh, run:"
+    echo "  chsh -s $(command -v zsh)"
+    echo ""
+  fi
 
-    brew_path=$(brew --prefix 2>/dev/null)
-    if [[ -n "$brew_path" && -f "$brew_path/bin/zsh" ]]; then
-        echo "To change your default shell to Zsh, run:"
-        echo "  chsh -s $brew_path/bin/zsh"
-        echo ""
-        echo "To start using Zsh immediately without logging out, run:"
-        echo "  $brew_path/bin/zsh"
-        echo ""
-    elif command_exists zsh; then
-        echo "To change your default shell to Zsh, run:"
-        echo "  chsh -s $(command -v zsh)"
-        echo ""
-    fi
-
-    echo "You may want to restart your terminal for all changes to take effect."
-    echo ""
-    echo "To update your environment in the future, run:"
-    echo "  cd $DEV_ENV && ./update"
-    echo ""
+  echo "You may want to restart your terminal for all changes to take effect."
+  echo ""
+  echo "To update your environment in the future, run:"
+  echo "  cd $DEV_ENV && ./update"
+  echo ""
 }
 
 setup

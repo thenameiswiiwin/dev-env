@@ -4,99 +4,99 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 main() {
-    log "INFO" "Starting Docker setup"
+  log "INFO" "Starting Docker setup"
 
-    init_homebrew
+  init_homebrew
 
-    if [[ "$OS" == "Darwin" ]]; then
-        log "INFO" "Installing Docker (macOS)"
-        install_cask "docker" || log "WARN" "Failed to install Docker"
-    elif [[ "$OS" == "Linux" ]]; then
-        log "INFO" "Installing Docker (Linux)"
+  if [[ "$OS" == "Darwin" ]]; then
+    log "INFO" "Installing Docker (macOS)"
+    install_cask "docker" || log "WARN" "Failed to install Docker"
+  elif [[ "$OS" == "Linux" ]]; then
+    log "INFO" "Installing Docker (Linux)"
 
-        if install_package "docker"; then
-            log "INFO" "Docker installed successfully with Homebrew"
-        else
-            log "WARN" "Homebrew installation failed, trying official Docker install script"
-            if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                execute "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh" "Downloading Docker install script"
-                execute "sh /tmp/get-docker.sh" "Installing Docker"
-                execute "rm /tmp/get-docker.sh" "Cleaning up Docker install script"
-
-                if getent group docker >/dev/null; then
-                    log "INFO" "Adding user to docker group"
-                    execute "sudo usermod -aG docker $USER" "Adding user to docker group"
-                    log "INFO" "Note: You may need to log out and back in for group changes to take effect"
-                else
-                    log "WARN" "Docker group does not exist, skipping user addition"
-                fi
-            else
-                log "DRY" "Would install Docker using official install script"
-            fi
-        fi
+    if install_package "docker"; then
+      log "INFO" "Docker installed successfully with Homebrew"
     else
-        log "ERROR" "Unsupported operating system: $OS"
-        return 1
+      log "WARN" "Homebrew installation failed, trying official Docker install script"
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        execute "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh" "Downloading Docker install script"
+        execute "sh /tmp/get-docker.sh" "Installing Docker"
+        execute "rm /tmp/get-docker.sh" "Cleaning up Docker install script"
+
+        if getent group docker >/dev/null; then
+          log "INFO" "Adding user to docker group"
+          execute "sudo usermod -aG docker $USER" "Adding user to docker group"
+          log "INFO" "Note: You may need to log out and back in for group changes to take effect"
+        else
+          log "WARN" "Docker group does not exist, skipping user addition"
+        fi
+      else
+        log "DRY" "Would install Docker using official install script"
+      fi
     fi
+  else
+    log "ERROR" "Unsupported operating system: $OS"
+    return 1
+  fi
 
-    # Install Docker tools
-    local packages=(
-        "docker-compose"    # Docker Compose
-        "docker-completion" # Shell completions for Docker
-        "docker-buildx"     # BuildKit-based builder
-    )
+  # Install Docker tools
+  local packages=(
+    "docker-compose"    # Docker Compose
+    "docker-completion" # Shell completions for Docker
+    "docker-buildx"     # BuildKit-based builder
+  )
 
-    for package in "${packages[@]}"; do
-        log "INFO" "Installing $package"
-        install_package "$package" || {
-            log "WARN" "Failed to install $package with Homebrew, trying alternatives"
+  for package in "${packages[@]}"; do
+    log "INFO" "Installing $package"
+    install_package "$package" || {
+      log "WARN" "Failed to install $package with Homebrew, trying alternatives"
 
-            # If Homebrew installation failed, try alternatives for specific packages
-            if ! command_exists "${package%%@*}" && ! brew_installed "${package%%@*}"; then
-                case "$package" in
-                "docker-compose")
-                    if [[ "$OS" == "Linux" ]]; then
-                        log "INFO" "Trying to install docker-compose directly"
-                        execute "curl -SL https://github.com/docker/compose/releases/download/v2.24.3/docker-compose-linux-x86_64 -o /tmp/docker-compose" "Downloading docker-compose"
-                        execute "sudo install /tmp/docker-compose /usr/local/bin/docker-compose" "Installing docker-compose"
-                        execute "rm /tmp/docker-compose" "Cleaning up"
-                    fi
-                    ;;
-                "docker-buildx")
-                    if [[ "$OS" == "Linux" ]]; then
-                        log "INFO" "Docker BuildX is typically included with Docker Engine installations, skipping separate installation"
-                    fi
-                    ;;
-                esac
-            fi
-        }
-    done
+      # If Homebrew installation failed, try alternatives for specific packages
+      if ! command_exists "${package%%@*}" && ! brew_installed "${package%%@*}"; then
+        case "$package" in
+        "docker-compose")
+          if [[ "$OS" == "Linux" ]]; then
+            log "INFO" "Trying to install docker-compose directly"
+            execute "curl -SL https://github.com/docker/compose/releases/download/v2.24.3/docker-compose-linux-x86_64 -o /tmp/docker-compose" "Downloading docker-compose"
+            execute "sudo install /tmp/docker-compose /usr/local/bin/docker-compose" "Installing docker-compose"
+            execute "rm /tmp/docker-compose" "Cleaning up"
+          fi
+          ;;
+        "docker-buildx")
+          if [[ "$OS" == "Linux" ]]; then
+            log "INFO" "Docker BuildX is typically included with Docker Engine installations, skipping separate installation"
+          fi
+          ;;
+        esac
+      fi
+    }
+  done
 
+  if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    mkdir -p "$HOME/.docker/completions" 2>/dev/null || log "WARN" "Failed to create completions directory"
+  else
+    log "DRY" "Would create docker completions directory"
+  fi
+
+  log "INFO" "Verifying Docker installation"
+  if command_exists docker; then
     if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-        mkdir -p "$HOME/.docker/completions" 2>/dev/null || log "WARN" "Failed to create completions directory"
+      docker --version || log "WARN" "Docker is installed but may not be running"
     else
-        log "DRY" "Would create docker completions directory"
+      log "DRY" "Would check Docker version"
     fi
+  else
+    log "WARN" "Docker installation could not be verified"
+  fi
 
-    log "INFO" "Verifying Docker installation"
-    if command_exists docker; then
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            docker --version || log "WARN" "Docker is installed but may not be running"
-        else
-            log "DRY" "Would check Docker version"
-        fi
-    else
-        log "WARN" "Docker installation could not be verified"
-    fi
-
-    log "SUCCESS" "Docker setup completed"
-    log "INFO" "Note: You may need to logout and login again for group changes to take effect (Linux only)"
-    return 0
+  log "SUCCESS" "Docker setup completed"
+  log "INFO" "Note: You may need to logout and login again for group changes to take effect (Linux only)"
+  return 0
 }
 
 main

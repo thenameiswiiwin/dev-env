@@ -6,9 +6,9 @@ echo "[INFO] Starting macOS Customization..."
 # Request sudo
 sudo -v
 while true; do
-    sudo -n true
-    sleep 60
-    kill -0 "$$" || exit
+  sudo -n true
+  sleep 60
+  kill -0 "$$" || exit
 done 2>/dev/null &
 
 # General UI/UX
@@ -43,7 +43,7 @@ defaults write com.apple.Safari AutoOpenSafeDownloads -bool false
 
 # Kill affected apps
 for app in "Activity Monitor" "Dock" "Finder" "Safari" "SystemUIServer"; do
-    killall "${app}" &>/dev/null
+  killall "${app}" &>/dev/null
 done
 
 echo "[INFO] Customization complete. Some changes may require a restart."

@@ -9,85 +9,85 @@ export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/utilities" 2>/dev/null; then
-    echo "Failed to source utilities script"
-    exit 1
+  echo "Failed to source utilities script"
+  exit 1
 fi
 
 if [[ "${1:-}" == "--dry" ]]; then
-    export DRY_RUN=1
+  export DRY_RUN=1
 fi
 
 if ! check_required_env "DEV_ENV" "XDG_CONFIG_HOME"; then
-    exit 1
+  exit 1
 fi
 
 log "INFO" "Environment: $DEV_ENV"
 
 update_files() {
-    local source_dir="$1"
-    local dest_dir="$2"
+  local source_dir="$1"
+  local dest_dir="$2"
 
-    log "INFO" "Copying files from: $source_dir to $dest_dir"
+  log "INFO" "Copying files from: $source_dir to $dest_dir"
 
-    if [[ ! -d "$source_dir" ]]; then
-        log "ERROR" "Source directory does not exist: $source_dir"
-        return 1
+  if [[ ! -d "$source_dir" ]]; then
+    log "ERROR" "Source directory does not exist: $source_dir"
+    return 1
+  fi
+
+  if [[ ! -d "$dest_dir" ]]; then
+    log "INFO" "Creating destination directory: $dest_dir"
+    execute "mkdir -p \"$dest_dir\"" "Creating directory"
+  fi
+
+  if ! pushd "$source_dir" &>/dev/null; then
+    log "ERROR" "Failed to enter directory $source_dir"
+    return 1
+  fi
+
+  configs=$(find . -mindepth 1 -maxdepth 1 -type d)
+
+  for config in $configs; do
+    config_name="${config#./}"
+    destination="${dest_dir%/}/${config_name}"
+
+    log "INFO" "Processing: $config_name"
+
+    if [[ -d "$destination" ]]; then
+      backup_directory "$destination"
+      execute "rm -rf \"$destination\"" "Removing existing directory"
     fi
 
-    if [[ ! -d "$dest_dir" ]]; then
-        log "INFO" "Creating destination directory: $dest_dir"
-        execute "mkdir -p \"$dest_dir\"" "Creating directory"
-    fi
+    execute "cp -r \"$config_name\" \"$dest_dir\"" "Copying directory"
+  done
 
-    if ! pushd "$source_dir" &>/dev/null; then
-        log "ERROR" "Failed to enter directory $source_dir"
-        return 1
-    fi
-
-    configs=$(find . -mindepth 1 -maxdepth 1 -type d)
-
-    for config in $configs; do
-        config_name="${config#./}"
-        destination="${dest_dir%/}/${config_name}"
-
-        log "INFO" "Processing: $config_name"
-
-        if [[ -d "$destination" ]]; then
-            backup_directory "$destination"
-            execute "rm -rf \"$destination\"" "Removing existing directory"
-        fi
-
-        execute "cp -r \"$config_name\" \"$dest_dir\"" "Copying directory"
-    done
-
-    popd &>/dev/null || log "WARN" "Failed to return from directory $source_dir"
-    return 0
+  popd &>/dev/null || log "WARN" "Failed to return from directory $source_dir"
+  return 0
 }
 
 copy_file() {
-    local source="$1"
-    local destination="$2"
+  local source="$1"
+  local destination="$2"
 
-    if [[ ! -f "$source" ]]; then
-        log "ERROR" "Source file does not exist: $source"
-        return 1
-    fi
+  if [[ ! -f "$source" ]]; then
+    log "ERROR" "Source file does not exist: $source"
+    return 1
+  fi
 
-    local dest_dir
-    dest_dir=$(dirname "$destination")
-    if [[ ! -d "$dest_dir" ]]; then
-        log "INFO" "Creating destination directory: $dest_dir"
-        execute "mkdir -p \"$dest_dir\"" "Creating directory"
-    fi
+  local dest_dir
+  dest_dir=$(dirname "$destination")
+  if [[ ! -d "$dest_dir" ]]; then
+    log "INFO" "Creating destination directory: $dest_dir"
+    execute "mkdir -p \"$dest_dir\"" "Creating directory"
+  fi
 
-    if [[ -f "$destination" ]]; then
-        backup_file "$destination"
-        execute "rm \"$destination\"" "Removing existing file"
-    fi
+  if [[ -f "$destination" ]]; then
+    backup_file "$destination"
+    execute "rm \"$destination\"" "Removing existing file"
+  fi
 
-    execute "cp \"$source\" \"$destination\"" "Copying file"
+  execute "cp \"$source\" \"$destination\"" "Copying file"
 
-    return 0
+  return 0
 }
 
 # Update configuration directories
@@ -110,7 +110,7 @@ execute "mkdir -p \"$HOME/.local/bin\"" "Creating local bin directory"
 
 # Make sure scripts are executable
 if [[ -d "$HOME/.local/bin" ]]; then
-    execute "find \"$HOME/.local/bin\" -type f -exec chmod +x {} \\;" "Making scripts executable"
+  execute "find \"$HOME/.local/bin\" -type f -exec chmod +x {} \\;" "Making scripts executable"
 fi
 
 log "SUCCESS" "Configuration update completed"

@@ -4,228 +4,237 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 main() {
-    log "INFO" "Starting PHP setup"
+  log "INFO" "Starting PHP setup"
 
-    init_homebrew
+  init_homebrew
 
-    log "INFO" "Installing PHP"
-    install_package "php" || {
-        log "WARN" "Failed to install PHP with Homebrew, trying system package manager"
+  log "INFO" "Installing PHP"
+  install_package "php" || {
+    log "WARN" "Failed to install PHP with Homebrew, trying system package manager"
 
-        if [[ "$OS" == "Linux" ]]; then
-            if command_exists apt; then
-                log "INFO" "Installing PHP with apt"
-                execute "sudo apt update && sudo apt install -y php php-cli php-fpm php-json php-common php-mysql php-zip php-gd php-mbstring php-curl php-xml php-pear php-bcmath" "Installing PHP with apt"
-            elif command_exists pacman; then
-                log "INFO" "Installing PHP with pacman"
-                execute "sudo pacman -Sy --noconfirm php php-fpm" "Installing PHP with pacman"
-            elif command_exists apk; then
-                log "INFO" "Installing PHP with apk"
-                execute "sudo apk add --no-cache php php-fpm php-json php-phar php-mbstring php-openssl" "Installing PHP with apk"
-            else
-                log "ERROR" "No supported package manager found for PHP installation"
-            fi
-        else
-            log "ERROR" "Failed to install PHP"
-        fi
-    }
-
-    log "INFO" "Installing Composer"
-    install_package "composer" || {
-        log "WARN" "Homebrew installation of Composer failed, trying alternative method"
-
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            log "INFO" "Downloading Composer installer"
-            php_cmd="php -r \"copy('https://getcomposer.org/installer', 'composer-setup.php');\""
-            install_cmd="php composer-setup.php --quiet --install-dir=/usr/local/bin --filename=composer"
-            cleanup_cmd="php -r \"unlink('composer-setup.php');\""
-
-            execute "$php_cmd" "Downloading Composer installer" &&
-                execute "sudo $install_cmd" "Installing Composer" &&
-                execute "$cleanup_cmd" "Cleaning up Composer installer" || {
-                log "ERROR" "Failed to install Composer manually"
-
-                # Try installing to the user's local bin directory
-                log "INFO" "Trying to install Composer to local bin directory"
-                execute "mkdir -p $HOME/.local/bin" "Creating local bin directory"
-                install_cmd_local="php composer-setup.php --quiet --install-dir=$HOME/.local/bin --filename=composer"
-                execute "$install_cmd_local" "Installing Composer to local bin" &&
-                    execute "$cleanup_cmd" "Cleaning up Composer installer"
-            }
-        else
-            log "DRY" "Would install Composer manually"
-        fi
-    }
-
-    composer_dir="$HOME/.composer"
-    composer_bin="$composer_dir/vendor/bin"
-
-    if [[ ${DRY_RUN:-0} -eq 0 ]] && command_exists composer; then
-        log "INFO" "Setting up Composer directories"
-        mkdir -p "$composer_bin" 2>/dev/null || log "WARN" "Failed to create Composer bin directory"
+    if [[ "$OS" == "Linux" ]]; then
+      if command_exists apt; then
+        log "INFO" "Installing PHP with apt"
+        execute "sudo apt update && sudo apt install -y php php-cli php-fpm php-json php-common php-mysql php-zip php-gd php-mbstring php-curl php-xml php-pear php-bcmath" "Installing PHP with apt"
+      elif command_exists pacman; then
+        log "INFO" "Installing PHP with pacman"
+        execute "sudo pacman -Sy --noconfirm php php-fpm" "Installing PHP with pacman"
+      elif command_exists apk; then
+        log "INFO" "Installing PHP with apk"
+        execute "sudo apk add --no-cache php php-fpm php-json php-phar php-mbstring php-openssl" "Installing PHP with apk"
+      else
+        log "ERROR" "No supported package manager found for PHP installation"
+      fi
     else
-        log "DRY" "Would set up Composer directories"
+      log "ERROR" "Failed to install PHP"
     fi
+  }
 
-    # Update profile for Composer bin path
-    update_profile() {
-        local profile_file="$1"
+  log "INFO" "Installing Composer"
+  install_package "composer" || {
+    log "WARN" "Homebrew installation of Composer failed, trying alternative method"
 
-        if [[ -f "$profile_file" ]]; then
-            log "INFO" "Updating Composer path in $profile_file"
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      log "INFO" "Downloading Composer installer"
+      php_cmd="php -r \"copy('https://getcomposer.org/installer', 'composer-setup.php');\""
+      install_cmd="php composer-setup.php --quiet --install-dir=/usr/local/bin --filename=composer"
+      cleanup_cmd="php -r \"unlink('composer-setup.php');\""
 
-            composer_config="
+      execute "$php_cmd" "Downloading Composer installer" &&
+        execute "sudo $install_cmd" "Installing Composer" &&
+        execute "$cleanup_cmd" "Cleaning up Composer installer" || {
+        log "ERROR" "Failed to install Composer manually"
+
+        # Try installing to the user's local bin directory
+        log "INFO" "Trying to install Composer to local bin directory"
+        execute "mkdir -p $HOME/.local/bin" "Creating local bin directory"
+        install_cmd_local="php composer-setup.php --quiet --install-dir=$HOME/.local/bin --filename=composer"
+        execute "$install_cmd_local" "Installing Composer to local bin" &&
+          execute "$cleanup_cmd" "Cleaning up Composer installer"
+      }
+    else
+      log "DRY" "Would install Composer manually"
+    fi
+  }
+
+  composer_dir="$HOME/.composer"
+  composer_bin="$composer_dir/vendor/bin"
+
+  if [[ ${DRY_RUN:-0} -eq 0 ]] && command_exists composer; then
+    log "INFO" "Setting up Composer directories"
+    mkdir -p "$composer_bin" 2>/dev/null || log "WARN" "Failed to create Composer bin directory"
+  else
+    log "DRY" "Would set up Composer directories"
+  fi
+
+  # Update profile for Composer bin path
+  update_profile() {
+    local profile_file="$1"
+
+    if [[ -f "$profile_file" ]]; then
+      log "INFO" "Updating Composer path in $profile_file"
+
+      composer_config="
 # Composer bin path
 export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
 "
 
-            if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                if ! grep -q "Composer bin path" "$profile_file"; then
-                    backup_file "$profile_file"
-                    echo "$composer_config" >>"$profile_file" || log "WARN" "Failed to update $profile_file"
-                else
-                    log "INFO" "Composer path already configured in $profile_file"
-                fi
-            else
-                log "DRY" "Would add Composer bin path to $profile_file"
-            fi
-        fi
-    }
-
-    # Update both Bash and Zsh profiles
-    update_profile "$HOME/.zprofile"
-    update_profile "$HOME/.bash_profile"
-
-    log "INFO" "Installing Laravel installer"
-    if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
-        execute "composer global require laravel/installer" "Installing Laravel installer" ||
-            log "WARN" "Failed to install Laravel installer"
-    else
-        log "DRY" "Would install Laravel installer"
-    fi
-
-    # Configure PHP settings
-    if [[ "$OS" == "Darwin" ]]; then
-        php_ini_dirs=(
-            "/usr/local/etc/php/8.4"
-            "/usr/local/etc/php/8.3"
-            "/usr/local/etc/php/8.2"
-            "/usr/local/etc/php/8.1"
-            "/usr/local/etc/php/8.0"
-            "/usr/local/etc/php/7.4"
-            "/opt/homebrew/etc/php/8.4"
-            "/opt/homebrew/etc/php/8.3"
-            "/opt/homebrew/etc/php/8.2"
-            "/opt/homebrew/etc/php/8.1"
-        )
-
-        php_ini_dir=""
-        for dir in "${php_ini_dirs[@]}"; do
-            if [[ -d "$dir" ]]; then
-                php_ini_dir="$dir"
-                break
-            fi
-        done
-
-        if [[ -n "$php_ini_dir" ]]; then
-            log "INFO" "Configuring PHP settings in $php_ini_dir"
-
-            local php_ini="$php_ini_dir/php.ini"
-            if [[ ! -f "$php_ini" ]] && [[ -f "$php_ini_dir/php.ini-development" ]]; then
-                log "INFO" "Creating PHP ini from development template"
-                execute "cp \"$php_ini_dir/php.ini-development\" \"$php_ini\"" "Creating PHP ini" ||
-                    log "WARN" "Failed to create PHP ini"
-            fi
-
-            if [[ -f "$php_ini" ]] && [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                backup_file "$php_ini"
-
-                log "INFO" "Setting development values in PHP ini"
-                php_settings=(
-                    "memory_limit = 512M"
-                    "upload_max_filesize = 100M"
-                    "post_max_size = 100M"
-                    "max_execution_time = 300"
-                    "date.timezone = UTC"
-                )
-
-                for setting in "${php_settings[@]}"; do
-                    setting_name="${setting%%=*}"
-                    setting_name="${setting_name// /}"
-
-                    if grep -q "^$setting_name" "$php_ini"; then
-                        execute "sed -i.bak \"s/^$setting_name.*/$setting/\" \"$php_ini\"" "Updating $setting_name" ||
-                            log "WARN" "Failed to update $setting_name"
-                    else
-                        echo "$setting" >>"$php_ini" || log "WARN" "Failed to add $setting"
-                    fi
-                done
-            elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
-                log "DRY" "Would configure PHP settings"
-            fi
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        if ! grep -q "Composer bin path" "$profile_file"; then
+          backup_file "$profile_file"
+          echo "$composer_config" >>"$profile_file" || log "WARN" "Failed to update $profile_file"
         else
-            log "WARN" "Could not find PHP ini directory"
+          log "INFO" "Composer path already configured in $profile_file"
         fi
-    elif [[ "$OS" == "Linux" ]]; then
-        log "INFO" "Checking for PHP ini on Linux"
-        php_ini_paths=(
-            "/etc/php/php.ini"
-            "/etc/php/8.0/cli/php.ini"
-            "/etc/php/8.1/cli/php.ini"
-            "/etc/php/8.2/cli/php.ini"
-            "/etc/php/8.3/cli/php.ini"
+      else
+        log "DRY" "Would add Composer bin path to $profile_file"
+      fi
+    fi
+  }
+
+  # Update both Bash and Zsh profiles
+  update_profile "$HOME/.zprofile"
+  update_profile "$HOME/.bash_profile"
+
+  log "INFO" "Installing Laravel installer"
+  if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    execute "composer global require laravel/installer" "Installing Laravel installer" ||
+      log "WARN" "Failed to install Laravel installer"
+  else
+    log "DRY" "Would install Laravel installer"
+  fi
+
+  log "INFO" "Installing PHP/Laravel development tools"
+  if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    execute "composer global require phpactor/phpactor \
+            friendsofphp/php-cs-fixer" "Installing PHP/Laravel development tools" ||
+      log "WARN" "Failed to install Laravel installer"
+  else
+    log "DRY" "Would install Laravel installer"
+  fi
+
+  # Configure PHP settings
+  if [[ "$OS" == "Darwin" ]]; then
+    php_ini_dirs=(
+      "/usr/local/etc/php/8.4"
+      "/usr/local/etc/php/8.3"
+      "/usr/local/etc/php/8.2"
+      "/usr/local/etc/php/8.1"
+      "/usr/local/etc/php/8.0"
+      "/usr/local/etc/php/7.4"
+      "/opt/homebrew/etc/php/8.4"
+      "/opt/homebrew/etc/php/8.3"
+      "/opt/homebrew/etc/php/8.2"
+      "/opt/homebrew/etc/php/8.1"
+    )
+
+    php_ini_dir=""
+    for dir in "${php_ini_dirs[@]}"; do
+      if [[ -d "$dir" ]]; then
+        php_ini_dir="$dir"
+        break
+      fi
+    done
+
+    if [[ -n "$php_ini_dir" ]]; then
+      log "INFO" "Configuring PHP settings in $php_ini_dir"
+
+      local php_ini="$php_ini_dir/php.ini"
+      if [[ ! -f "$php_ini" ]] && [[ -f "$php_ini_dir/php.ini-development" ]]; then
+        log "INFO" "Creating PHP ini from development template"
+        execute "cp \"$php_ini_dir/php.ini-development\" \"$php_ini\"" "Creating PHP ini" ||
+          log "WARN" "Failed to create PHP ini"
+      fi
+
+      if [[ -f "$php_ini" ]] && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        backup_file "$php_ini"
+
+        log "INFO" "Setting development values in PHP ini"
+        php_settings=(
+          "memory_limit = 512M"
+          "upload_max_filesize = 100M"
+          "post_max_size = 100M"
+          "max_execution_time = 300"
+          "date.timezone = UTC"
         )
 
-        for php_ini in "${php_ini_paths[@]}"; do
-            if [[ -f "$php_ini" ]]; then
-                log "INFO" "Found PHP ini at $php_ini"
-                if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                    backup_file "$php_ini"
+        for setting in "${php_settings[@]}"; do
+          setting_name="${setting%%=*}"
+          setting_name="${setting_name// /}"
 
-                    log "INFO" "Setting development values in PHP ini"
-                    for setting in "memory_limit = 512M" "upload_max_filesize = 100M" "post_max_size = 100M" "max_execution_time = 300"; do
-                        setting_name="${setting%%=*}"
-                        setting_name="${setting_name// /}"
-
-                        if sudo grep -q "^$setting_name" "$php_ini"; then
-                            execute "sudo sed -i.bak \"s/^$setting_name.*/$setting/\" \"$php_ini\"" "Updating $setting_name" ||
-                                log "WARN" "Failed to update $setting_name"
-                        else
-                            execute "echo '$setting' | sudo tee -a \"$php_ini\"" "Adding $setting" ||
-                                log "WARN" "Failed to add $setting"
-                        fi
-                    done
-                else
-                    log "DRY" "Would configure PHP settings in $php_ini"
-                fi
-                break
-            fi
+          if grep -q "^$setting_name" "$php_ini"; then
+            execute "sed -i.bak \"s/^$setting_name.*/$setting/\" \"$php_ini\"" "Updating $setting_name" ||
+              log "WARN" "Failed to update $setting_name"
+          else
+            echo "$setting" >>"$php_ini" || log "WARN" "Failed to add $setting"
+          fi
         done
-    fi
-
-    log "INFO" "Verifying installations"
-
-    if command_exists php; then
-        php_version=$(php -v | head -n 1)
-        log "INFO" "PHP installed successfully: $php_version"
+      elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
+        log "DRY" "Would configure PHP settings"
+      fi
     else
-        log "WARN" "PHP installation could not be verified"
+      log "WARN" "Could not find PHP ini directory"
     fi
+  elif [[ "$OS" == "Linux" ]]; then
+    log "INFO" "Checking for PHP ini on Linux"
+    php_ini_paths=(
+      "/etc/php/php.ini"
+      "/etc/php/8.0/cli/php.ini"
+      "/etc/php/8.1/cli/php.ini"
+      "/etc/php/8.2/cli/php.ini"
+      "/etc/php/8.3/cli/php.ini"
+    )
 
-    if command_exists composer; then
-        composer_version=$(composer --version | head -n 1)
-        log "INFO" "Composer installed successfully: $composer_version"
-    else
-        log "WARN" "Composer installation could not be verified"
-    fi
+    for php_ini in "${php_ini_paths[@]}"; do
+      if [[ -f "$php_ini" ]]; then
+        log "INFO" "Found PHP ini at $php_ini"
+        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+          backup_file "$php_ini"
 
-    log "SUCCESS" "PHP setup completed"
-    return 0
+          log "INFO" "Setting development values in PHP ini"
+          for setting in "memory_limit = 512M" "upload_max_filesize = 100M" "post_max_size = 100M" "max_execution_time = 300"; do
+            setting_name="${setting%%=*}"
+            setting_name="${setting_name// /}"
+
+            if sudo grep -q "^$setting_name" "$php_ini"; then
+              execute "sudo sed -i.bak \"s/^$setting_name.*/$setting/\" \"$php_ini\"" "Updating $setting_name" ||
+                log "WARN" "Failed to update $setting_name"
+            else
+              execute "echo '$setting' | sudo tee -a \"$php_ini\"" "Adding $setting" ||
+                log "WARN" "Failed to add $setting"
+            fi
+          done
+        else
+          log "DRY" "Would configure PHP settings in $php_ini"
+        fi
+        break
+      fi
+    done
+  fi
+
+  log "INFO" "Verifying installations"
+
+  if command_exists php; then
+    php_version=$(php -v | head -n 1)
+    log "INFO" "PHP installed successfully: $php_version"
+  else
+    log "WARN" "PHP installation could not be verified"
+  fi
+
+  if command_exists composer; then
+    composer_version=$(composer --version | head -n 1)
+    log "INFO" "Composer installed successfully: $composer_version"
+  else
+    log "WARN" "Composer installation could not be verified"
+  fi
+
+  log "SUCCESS" "PHP setup completed"
+  return 0
 }
 
 main

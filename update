@@ -7,18 +7,18 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 source "$script_dir/utilities" 2>/dev/null || {
-    echo "Failed to source utilities script"
-    exit 1
+  echo "Failed to source utilities script"
+  exit 1
 }
 
 if [[ "${1:-}" == "--dry" ]]; then
-    export DRY_RUN=1
+  export DRY_RUN=1
 fi
 
 log "INFO" "Starting development environment update"
 
 if ! check_required_env "DEV_ENV" "XDG_CONFIG_HOME"; then
-    exit 1
+  exit 1
 fi
 
 log "INFO" "Updating repository"
@@ -28,125 +28,125 @@ log "INFO" "Updating submodules"
 execute "cd \"$DEV_ENV\" && ./init" "Updating git submodules"
 
 update_homebrew() {
-    if command_exists brew; then
-        log "INFO" "Updating Homebrew"
-        execute "brew update" "Updating Homebrew"
+  if command_exists brew; then
+    log "INFO" "Updating Homebrew"
+    execute "brew update" "Updating Homebrew"
 
-        log "INFO" "Upgrading Homebrew packages"
-        execute "brew upgrade" "Upgrading Homebrew packages"
+    log "INFO" "Upgrading Homebrew packages"
+    execute "brew upgrade" "Upgrading Homebrew packages"
 
-        log "INFO" "Cleaning up Homebrew"
-        execute "brew cleanup" "Cleaning up Homebrew"
-    else
-        log "WARN" "Homebrew not found, skipping package updates"
-    fi
+    log "INFO" "Cleaning up Homebrew"
+    execute "brew cleanup" "Cleaning up Homebrew"
+  else
+    log "WARN" "Homebrew not found, skipping package updates"
+  fi
 }
 
 update_npm_packages() {
-    if command_exists npm; then
-        log "INFO" "Updating global npm packages"
-        execute "npm update -g" "Updating global npm packages"
-    else
-        log "INFO" "npm not found, skipping npm updates"
-    fi
+  if command_exists npm; then
+    log "INFO" "Updating global npm packages"
+    execute "npm update -g" "Updating global npm packages"
+  else
+    log "INFO" "npm not found, skipping npm updates"
+  fi
 }
 
 update_pip_packages() {
-    if command_exists pip3; then
-        log "INFO" "Updating global pip packages"
+  if command_exists pip3; then
+    log "INFO" "Updating global pip packages"
 
-        if pip3 --version 2>&1 | grep -q "externally-managed-environment"; then
-            log "INFO" "Detected externally-managed Python environment"
+    if pip3 --version 2>&1 | grep -q "externally-managed-environment"; then
+      log "INFO" "Detected externally-managed Python environment"
 
-            venv_dir="$HOME/.python-global-env"
-            if [[ -d "$venv_dir" ]]; then
-                log "INFO" "Updating packages in Python virtual environment"
-                execute "$venv_dir/bin/pip install --upgrade pip" "Upgrading pip in venv"
+      venv_dir="$HOME/.python-global-env"
+      if [[ -d "$venv_dir" ]]; then
+        log "INFO" "Updating packages in Python virtual environment"
+        execute "$venv_dir/bin/pip install --upgrade pip" "Upgrading pip in venv"
 
-                if command_exists jq; then
-                    execute "$venv_dir/bin/pip list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 $venv_dir/bin/pip install -U" "Updating packages in venv" ||
-                        log "WARN" "Failed to update some packages in venv"
-                else
-                    execute "$venv_dir/bin/pip list --outdated | tail -n +3 | awk '{print \$1}' | xargs -r -n1 $venv_dir/bin/pip install -U" "Updating packages in venv" ||
-                        log "WARN" "Failed to update some packages in venv"
-                fi
-            elif [[ -d "$HOME/.jupyter-env" ]]; then
-                log "INFO" "Updating packages in Jupyter environment"
-                execute "$HOME/.jupyter-env/bin/pip install --upgrade pip" "Upgrading pip in Jupyter environment"
-                execute "$HOME/.jupyter-env/bin/pip install --upgrade jupyter" "Updating Jupyter"
-            else
-                log "WARN" "Virtual environment not found, skipping pip updates"
-                log "INFO" "To update Python packages, run './python' to set up a virtual environment first"
-            fi
+        if command_exists jq; then
+          execute "$venv_dir/bin/pip list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 $venv_dir/bin/pip install -U" "Updating packages in venv" ||
+            log "WARN" "Failed to update some packages in venv"
         else
-            if command_exists jq; then
-                execute "pip3 list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 pip3 install -U --user" "Updating packages with --user flag" || {
-                    log "WARN" "Failed to update packages with --user flag"
-                    log "INFO" "Trying with --break-system-packages flag"
-                    execute "pip3 list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 pip3 install -U --user --break-system-packages" "Updating packages with break-system-packages" ||
-                        log "WARN" "Failed to update Python packages"
-                }
-            else
-                execute "pip3 list --outdated | tail -n +3 | awk '{print \$1}' | xargs -r -n1 pip3 install -U --user" "Updating packages with --user flag" || {
-                    log "WARN" "Failed to update packages with --user flag"
-                    log "INFO" "Trying with --break-system-packages flag"
-                    execute "pip3 list --outdated | tail -n +3 | awk '{print \$1}' | xargs -r -n1 pip3 install -U --user --break-system-packages" "Updating packages with break-system-packages" ||
-                        log "WARN" "Failed to update Python packages"
-                }
-            fi
+          execute "$venv_dir/bin/pip list --outdated | tail -n +3 | awk '{print \$1}' | xargs -r -n1 $venv_dir/bin/pip install -U" "Updating packages in venv" ||
+            log "WARN" "Failed to update some packages in venv"
         fi
+      elif [[ -d "$HOME/.jupyter-env" ]]; then
+        log "INFO" "Updating packages in Jupyter environment"
+        execute "$HOME/.jupyter-env/bin/pip install --upgrade pip" "Upgrading pip in Jupyter environment"
+        execute "$HOME/.jupyter-env/bin/pip install --upgrade jupyter" "Updating Jupyter"
+      else
+        log "WARN" "Virtual environment not found, skipping pip updates"
+        log "INFO" "To update Python packages, run './python' to set up a virtual environment first"
+      fi
     else
-        log "INFO" "pip3 not found, skipping Python updates"
+      if command_exists jq; then
+        execute "pip3 list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 pip3 install -U --user" "Updating packages with --user flag" || {
+          log "WARN" "Failed to update packages with --user flag"
+          log "INFO" "Trying with --break-system-packages flag"
+          execute "pip3 list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 pip3 install -U --user --break-system-packages" "Updating packages with break-system-packages" ||
+            log "WARN" "Failed to update Python packages"
+        }
+      else
+        execute "pip3 list --outdated | tail -n +3 | awk '{print \$1}' | xargs -r -n1 pip3 install -U --user" "Updating packages with --user flag" || {
+          log "WARN" "Failed to update packages with --user flag"
+          log "INFO" "Trying with --break-system-packages flag"
+          execute "pip3 list --outdated | tail -n +3 | awk '{print \$1}' | xargs -r -n1 pip3 install -U --user --break-system-packages" "Updating packages with break-system-packages" ||
+            log "WARN" "Failed to update Python packages"
+        }
+      fi
     fi
+  else
+    log "INFO" "pip3 not found, skipping Python updates"
+  fi
 }
 
 update_rust() {
-    if command_exists rustup; then
-        log "INFO" "Updating Rust"
-        execute "rustup update" "Updating Rust"
-    else
-        log "INFO" "rustup not found, skipping Rust updates"
-    fi
+  if command_exists rustup; then
+    log "INFO" "Updating Rust"
+    execute "rustup update" "Updating Rust"
+  else
+    log "INFO" "rustup not found, skipping Rust updates"
+  fi
 
-    if command_exists cargo; then
-        log "INFO" "Updating installed Cargo packages"
-        if command_exists cargo-install-update; then
-            execute "cargo install-update -a" "Updating Cargo packages"
-        else
-            log "INFO" "Installing cargo-update"
-            execute "cargo install cargo-update" "Installing cargo-update"
-            execute "cargo install-update -a" "Updating Cargo packages" ||
-                log "WARN" "Failed to update Cargo packages"
-        fi
+  if command_exists cargo; then
+    log "INFO" "Updating installed Cargo packages"
+    if command_exists cargo-install-update; then
+      execute "cargo install-update -a" "Updating Cargo packages"
     else
-        log "INFO" "cargo not found, skipping Cargo updates"
+      log "INFO" "Installing cargo-update"
+      execute "cargo install cargo-update" "Installing cargo-update"
+      execute "cargo install-update -a" "Updating Cargo packages" ||
+        log "WARN" "Failed to update Cargo packages"
     fi
+  else
+    log "INFO" "cargo not found, skipping Cargo updates"
+  fi
 }
 
 update_neovim() {
-    if command_exists nvim; then
-        log "INFO" "Updating Neovim plugins and tools"
+  if command_exists nvim; then
+    log "INFO" "Updating Neovim plugins and tools"
 
-        log "INFO" "Updating lazy.nvim plugins"
-        execute "nvim --headless -c 'lua require(\"lazy\").sync()' -c 'qa!'" "Updating Neovim plugins with lazy.nvim" || {
-            log "WARN" "Failed to update Neovim plugins with lazy.nvim"
-            log "INFO" "You may need to run nvim manually and execute :Lazy sync"
-        }
+    log "INFO" "Updating lazy.nvim plugins"
+    execute "nvim --headless -c 'lua require(\"lazy\").sync()' -c 'qa!'" "Updating Neovim plugins with lazy.nvim" || {
+      log "WARN" "Failed to update Neovim plugins with lazy.nvim"
+      log "INFO" "You may need to run nvim manually and execute :Lazy sync"
+    }
 
-        log "INFO" "Updating Mason packages"
-        execute "nvim --headless -c 'MasonUpdate' -c 'qa!'" "Updating Mason packages" || {
-            log "WARN" "Failed to update Mason packages"
-            log "INFO" "You may need to run nvim manually and execute :MasonUpdate"
-        }
+    log "INFO" "Updating Mason packages"
+    execute "nvim --headless -c 'MasonUpdate' -c 'qa!'" "Updating Mason packages" || {
+      log "WARN" "Failed to update Mason packages"
+      log "INFO" "You may need to run nvim manually and execute :MasonUpdate"
+    }
 
-        log "INFO" "Updating Treesitter parsers"
-        execute "nvim --headless -c 'TSUpdateSync' -c 'qa!'" "Updating Treesitter parsers" || {
-            log "WARN" "Failed to update Treesitter parsers"
-            log "INFO" "You may need to run nvim manually and execute :TSUpdateSync"
-        }
-    else
-        log "INFO" "Neovim not found, skipping Neovim updates"
-    fi
+    log "INFO" "Updating Treesitter parsers"
+    execute "nvim --headless -c 'TSUpdateSync' -c 'qa!'" "Updating Treesitter parsers" || {
+      log "WARN" "Failed to update Treesitter parsers"
+      log "INFO" "You may need to run nvim manually and execute :TSUpdateSync"
+    }
+  else
+    log "INFO" "Neovim not found, skipping Neovim updates"
+  fi
 }
 
 # Run all update functions

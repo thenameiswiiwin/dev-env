@@ -21,374 +21,374 @@ COLOR_RESET="\033[0m"
 
 # Usage: log "INFO" "Message"
 log() {
-    local level="$1"
-    local message="$2"
-    local color=""
+  local level="$1"
+  local message="$2"
+  local color=""
 
-    case "$level" in
-    SUCCESS) color="$COLOR_GREEN" ;;
-    INFO) color="$COLOR_BLUE" ;;
-    WARN) color="$COLOR_YELLOW" ;;
-    ERROR) color="$COLOR_RED" ;;
-    DRY) color="$COLOR_CYAN" ;;
-    *) color="$COLOR_RESET" ;;
-    esac
+  case "$level" in
+  SUCCESS) color="$COLOR_GREEN" ;;
+  INFO) color="$COLOR_BLUE" ;;
+  WARN) color="$COLOR_YELLOW" ;;
+  ERROR) color="$COLOR_RED" ;;
+  DRY) color="$COLOR_CYAN" ;;
+  *) color="$COLOR_RESET" ;;
+  esac
 
-    if [[ ${DRY_RUN:-0} -eq 1 && "$level" != "DRY" ]]; then
-        echo -e "${COLOR_CYAN}[DRY_RUN]${COLOR_RESET} $message"
-    else
-        echo -e "${color}[$level]${COLOR_RESET} $message"
-    fi
+  if [[ ${DRY_RUN:-0} -eq 1 && "$level" != "DRY" ]]; then
+    echo -e "${COLOR_CYAN}[DRY_RUN]${COLOR_RESET} $message"
+  else
+    echo -e "${color}[$level]${COLOR_RESET} $message"
+  fi
 }
 
 # Usage: command_exists "brew"
 command_exists() {
-    command -v "$1" &>/dev/null
+  command -v "$1" &>/dev/null
 }
 
 # Usage: brew_installed "git"
 brew_installed() {
-    if command_exists brew; then
-        if brew list --formula 2>/dev/null | grep -q "^$1\$"; then
-            return 0
-        fi
+  if command_exists brew; then
+    if brew list --formula 2>/dev/null | grep -q "^$1\$"; then
+      return 0
     fi
-    return 1
+  fi
+  return 1
 }
 
 # Usage: cask_installed "visual-studio-code"
 cask_installed() {
-    if command_exists brew && [[ "$OS" == "Darwin" ]]; then
-        if brew list --cask 2>/dev/null | grep -q "^$1\$"; then
-            return 0
-        fi
+  if command_exists brew && [[ "$OS" == "Darwin" ]]; then
+    if brew list --cask 2>/dev/null | grep -q "^$1\$"; then
+      return 0
     fi
-    return 1
+  fi
+  return 1
 }
 
 # Usage: execute "command" "command description"
 execute() {
-    local cmd="$1"
-    local description="${2:-Executing command}"
+  local cmd="$1"
+  local description="${2:-Executing command}"
 
-    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "$description: $cmd"
-        return 0
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "$description: $cmd"
+    return 0
+  else
+    log "INFO" "$description"
+    if eval "$cmd"; then
+      return 0
     else
-        log "INFO" "$description"
-        if eval "$cmd"; then
-            return 0
-        else
-            local exit_code=$?
-            log "ERROR" "Command failed with exit code $exit_code: $cmd"
-            return $exit_code
-        fi
+      local exit_code=$?
+      log "ERROR" "Command failed with exit code $exit_code: $cmd"
+      return $exit_code
     fi
+  fi
 }
 
 init_homebrew() {
-    if [[ "$OS" == "Darwin" ]]; then
-        if [[ -f /opt/homebrew/bin/brew ]]; then
-            eval "$(/opt/homebrew/bin/brew shellenv)"
-        elif [[ -f /usr/local/bin/brew ]]; then
-            eval "$(/usr/local/bin/brew shellenv)"
-        fi
-    elif [[ "$OS" == "Linux" ]]; then
-        if [[ -d "$HOME/.linuxbrew" ]]; then
-            eval "$("$HOME"/.linuxbrew/bin/brew shellenv)"
-        elif [[ -d "/home/linuxbrew/.linuxbrew" ]]; then
-            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-        fi
+  if [[ "$OS" == "Darwin" ]]; then
+    if [[ -f /opt/homebrew/bin/brew ]]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -f /usr/local/bin/brew ]]; then
+      eval "$(/usr/local/bin/brew shellenv)"
     fi
+  elif [[ "$OS" == "Linux" ]]; then
+    if [[ -d "$HOME/.linuxbrew" ]]; then
+      eval "$("$HOME"/.linuxbrew/bin/brew shellenv)"
+    elif [[ -d "/home/linuxbrew/.linuxbrew" ]]; then
+      eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+    fi
+  fi
 }
 
 # Usage: install_package "package_name" [skip_if_installed]
 install_package() {
-    local package="$1"
-    local skip_if_installed=${2:-true}
+  local package="$1"
+  local skip_if_installed=${2:-true}
 
-    if $skip_if_installed && brew_installed "$package"; then
-        log "INFO" "$package is already installed, skipping"
-        return 0
-    fi
+  if $skip_if_installed && brew_installed "$package"; then
+    log "INFO" "$package is already installed, skipping"
+    return 0
+  fi
 
-    log "INFO" "Installing $package with Homebrew"
-    if brew install "$package" 2>/dev/null; then
-        log "INFO" "$package installed successfully with Homebrew"
-        return 0
-    elif [[ "$OS" == "Linux" ]]; then
-        log "WARN" "Homebrew installation failed, trying system package manager"
+  log "INFO" "Installing $package with Homebrew"
+  if brew install "$package" 2>/dev/null; then
+    log "INFO" "$package installed successfully with Homebrew"
+    return 0
+  elif [[ "$OS" == "Linux" ]]; then
+    log "WARN" "Homebrew installation failed, trying system package manager"
 
-        if command_exists apt; then
-            log "INFO" "Detected apt-based distribution"
-            execute "sudo apt update -qq && sudo apt install -y $package" "Installing $package with apt"
-            return $?
-        elif command_exists pacman; then
-            log "INFO" "Detected Arch-based distribution"
-            execute "sudo pacman -Sy --noconfirm $package" "Installing $package with pacman"
-            return $?
-        elif command_exists apk; then
-            log "INFO" "Detected Alpine Linux"
-            execute "sudo apk add --no-cache $package" "Installing $package with apk"
-            return $?
-        elif command_exists dnf; then
-            log "INFO" "Detected dnf-based distribution"
-            execute "sudo dnf install -y $package" "Installing $package with dnf"
-            return $?
-        elif command_exists yum; then
-            log "INFO" "Detected yum-based distribution"
-            execute "sudo yum install -y $package" "Installing $package with yum"
-            return $?
-        else
-            log "ERROR" "No supported package manager found"
-            return 1
-        fi
+    if command_exists apt; then
+      log "INFO" "Detected apt-based distribution"
+      execute "sudo apt update -qq && sudo apt install -y $package" "Installing $package with apt"
+      return $?
+    elif command_exists pacman; then
+      log "INFO" "Detected Arch-based distribution"
+      execute "sudo pacman -Sy --noconfirm $package" "Installing $package with pacman"
+      return $?
+    elif command_exists apk; then
+      log "INFO" "Detected Alpine Linux"
+      execute "sudo apk add --no-cache $package" "Installing $package with apk"
+      return $?
+    elif command_exists dnf; then
+      log "INFO" "Detected dnf-based distribution"
+      execute "sudo dnf install -y $package" "Installing $package with dnf"
+      return $?
+    elif command_exists yum; then
+      log "INFO" "Detected yum-based distribution"
+      execute "sudo yum install -y $package" "Installing $package with yum"
+      return $?
     else
-        log "ERROR" "Failed to install $package"
-        return 1
+      log "ERROR" "No supported package manager found"
+      return 1
     fi
+  else
+    log "ERROR" "Failed to install $package"
+    return 1
+  fi
 }
 
 # Usage: install_cask "package_name" [skip_if_installed]
 install_cask() {
-    local package="$1"
-    local skip_if_installed=${2:-true}
+  local package="$1"
+  local skip_if_installed=${2:-true}
 
-    if [[ "$OS" != "Darwin" ]]; then
-        log "WARN" "Cask packages are only available on macOS, skipping $package"
-        return 0
-    fi
+  if [[ "$OS" != "Darwin" ]]; then
+    log "WARN" "Cask packages are only available on macOS, skipping $package"
+    return 0
+  fi
 
-    if $skip_if_installed && cask_installed "$package"; then
-        log "INFO" "$package is already installed, skipping"
-        return 0
-    fi
+  if $skip_if_installed && cask_installed "$package"; then
+    log "INFO" "$package is already installed, skipping"
+    return 0
+  fi
 
-    log "INFO" "Installing cask $package"
-    execute "brew install --cask $package" "Installing $package cask"
-    return $?
+  log "INFO" "Installing cask $package"
+  execute "brew install --cask $package" "Installing $package cask"
+  return $?
 }
 
 # Usage: check_required_env "VAR1" "VAR2"
 check_required_env() {
-    local missing=false
+  local missing=false
 
-    for var in "$@"; do
-        if [[ -z "${!var:-}" ]]; then
-            log "ERROR" "Required environment variable $var is not set"
-            missing=true
-        fi
-    done
-
-    if $missing; then
-        return 1
+  for var in "$@"; do
+    if [[ -z "${!var:-}" ]]; then
+      log "ERROR" "Required environment variable $var is not set"
+      missing=true
     fi
+  done
 
-    return 0
+  if $missing; then
+    return 1
+  fi
+
+  return 0
 }
 
 # Usage: get_backup_timestamp
 get_backup_timestamp() {
-    date +%Y%m%d_%H%M%S
+  date +%Y%m%d_%H%M%S
 }
 
 # Usage: backup_file "/path/to/file"
 backup_file() {
-    local file="$1"
-    local backup_dir
-    backup_dir="$HOME/personal/env-backup/$(get_backup_timestamp)"
+  local file="$1"
+  local backup_dir
+  backup_dir="$HOME/personal/env-backup/$(get_backup_timestamp)"
 
-    if [[ ! -f "$file" ]]; then
-        return 0
-    fi
+  if [[ ! -f "$file" ]]; then
+    return 0
+  fi
 
-    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would back up $file to $backup_dir"
-        return 0
-    fi
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would back up $file to $backup_dir"
+    return 0
+  fi
 
-    if [[ ! -d "$backup_dir" ]]; then
-        mkdir -p "$backup_dir" || {
-            log "ERROR" "Failed to create backup directory: $backup_dir"
-            return 1
-        }
-    fi
+  if [[ ! -d "$backup_dir" ]]; then
+    mkdir -p "$backup_dir" || {
+      log "ERROR" "Failed to create backup directory: $backup_dir"
+      return 1
+    }
+  fi
 
-    local filename
-    filename=$(basename "$file")
-    local backup_file="$backup_dir/$filename"
+  local filename
+  filename=$(basename "$file")
+  local backup_file="$backup_dir/$filename"
 
-    log "INFO" "Backing up $file to $backup_file"
-    if cp -f "$file" "$backup_file"; then
-        return 0
-    else
-        log "ERROR" "Failed to backup $file"
-        return 1
-    fi
+  log "INFO" "Backing up $file to $backup_file"
+  if cp -f "$file" "$backup_file"; then
+    return 0
+  else
+    log "ERROR" "Failed to backup $file"
+    return 1
+  fi
 }
 
 # Usage: backup_directory "/path/to/directory"
 backup_directory() {
-    local dir="$1"
-    local backup_dir
-    backup_dir="$HOME/personal/env-backup/$(get_backup_timestamp)"
+  local dir="$1"
+  local backup_dir
+  backup_dir="$HOME/personal/env-backup/$(get_backup_timestamp)"
 
-    if [[ ! -d "$dir" ]]; then
-        return 0
-    fi
+  if [[ ! -d "$dir" ]]; then
+    return 0
+  fi
 
-    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would back up directory $dir to $backup_dir"
-        return 0
-    fi
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would back up directory $dir to $backup_dir"
+    return 0
+  fi
 
-    if [[ ! -d "$backup_dir" ]]; then
-        mkdir -p "$backup_dir" || {
-            log "ERROR" "Failed to create backup directory: $backup_dir"
-            return 1
-        }
-    fi
+  if [[ ! -d "$backup_dir" ]]; then
+    mkdir -p "$backup_dir" || {
+      log "ERROR" "Failed to create backup directory: $backup_dir"
+      return 1
+    }
+  fi
 
-    local dirname
-    dirname=$(basename "$dir")
-    local backup_path="$backup_dir/$dirname"
+  local dirname
+  dirname=$(basename "$dir")
+  local backup_path="$backup_dir/$dirname"
 
-    log "INFO" "Backing up directory $dir to $backup_path"
-    if cp -rf "$dir" "$backup_dir/"; then
-        return 0
-    else
-        log "ERROR" "Failed to backup directory $dir"
-        return 1
-    fi
+  log "INFO" "Backing up directory $dir to $backup_path"
+  if cp -rf "$dir" "$backup_dir/"; then
+    return 0
+  else
+    log "ERROR" "Failed to backup directory $dir"
+    return 1
+  fi
 }
 
 # Usage: append_after_pattern "file" "pattern" "new_line"
 append_after_pattern() {
-    local file="$1"
-    local pattern="$2"
-    local new_line="$3"
+  local file="$1"
+  local pattern="$2"
+  local new_line="$3"
 
-    if [[ ! -f "$file" ]]; then
-        log "ERROR" "File not found: $file"
-        return 1
-    fi
+  if [[ ! -f "$file" ]]; then
+    log "ERROR" "File not found: $file"
+    return 1
+  fi
 
-    if grep -q "$new_line" "$file"; then
-        log "INFO" "Line already exists in $file, skipping"
-        return 0
-    fi
+  if grep -q "$new_line" "$file"; then
+    log "INFO" "Line already exists in $file, skipping"
+    return 0
+  fi
 
-    backup_file "$file"
+  backup_file "$file"
 
-    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would add \"$new_line\" after pattern \"$pattern\" in $file"
-        return 0
-    fi
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would add \"$new_line\" after pattern \"$pattern\" in $file"
+    return 0
+  fi
 
-    local tmp_file
-    tmp_file=$(mktemp)
+  local tmp_file
+  tmp_file=$(mktemp)
 
-    awk -v pat="$pattern" -v line="$new_line" '{
+  awk -v pat="$pattern" -v line="$new_line" '{
         print $0;
         if ($0 ~ pat) {
             print line;
         }
     }' "$file" >"$tmp_file" && mv "$tmp_file" "$file"
 
-    if [ $? -eq 0 ]; then
-        log "INFO" "Added line to $file"
-        return 0
-    else
-        log "ERROR" "Failed to modify $file"
-        return 1
-    fi
+  if [ $? -eq 0 ]; then
+    log "INFO" "Added line to $file"
+    return 0
+  else
+    log "ERROR" "Failed to modify $file"
+    return 1
+  fi
 }
 
 # Usage: ensure_line_in_file "file" "line"
 ensure_line_in_file() {
-    local file="$1"
-    local line="$2"
+  local file="$1"
+  local line="$2"
 
-    if [[ ! -f "$file" ]]; then
-        log "ERROR" "File not found: $file"
-        return 1
-    fi
+  if [[ ! -f "$file" ]]; then
+    log "ERROR" "File not found: $file"
+    return 1
+  fi
 
-    if grep -q "$line" "$file"; then
-        log "INFO" "Line already exists in $file, skipping"
-        return 0
-    fi
+  if grep -q "$line" "$file"; then
+    log "INFO" "Line already exists in $file, skipping"
+    return 0
+  fi
 
-    backup_file "$file"
+  backup_file "$file"
 
-    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would append \"$line\" to $file"
-        return 0
-    fi
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would append \"$line\" to $file"
+    return 0
+  fi
 
-    echo "$line" >>"$file"
-    local exit_code=$?
+  echo "$line" >>"$file"
+  local exit_code=$?
 
-    if [ $exit_code -eq 0 ]; then
-        log "INFO" "Added line to $file"
-        return 0
-    else
-        log "ERROR" "Failed to modify $file"
-        return 1
-    fi
+  if [ $exit_code -eq 0 ]; then
+    log "INFO" "Added line to $file"
+    return 0
+  else
+    log "ERROR" "Failed to modify $file"
+    return 1
+  fi
 }
 
 # Usage: configure_zsh_plugins
 configure_zsh_plugins() {
-    local zshrc="$HOME/.zshrc"
+  local zshrc="$HOME/.zshrc"
 
-    if [[ ! -f "$zshrc" ]]; then
-        log "ERROR" "Zsh configuration file not found: $zshrc"
-        return 1
+  if [[ ! -f "$zshrc" ]]; then
+    log "ERROR" "Zsh configuration file not found: $zshrc"
+    return 1
+  fi
+
+  backup_file "$zshrc"
+
+  # Initialize FPATH if it's not set (prevents unbound variable error)
+  FPATH="${FPATH:-}"
+
+  # Add Zsh Autosuggestions
+  local autosuggestions_paths=(
+    "/usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+    "/opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+    "/home/linuxbrew/.linuxbrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+    "$HOME/.linuxbrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+    "/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+    "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+  )
+
+  for path in "${autosuggestions_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      ensure_line_in_file "$zshrc" "source $path"
+      break
     fi
+  done
 
-    backup_file "$zshrc"
+  # Add Zsh Syntax Highlighting
+  local syntax_paths=(
+    "/usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+    "/opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+    "/home/linuxbrew/.linuxbrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+    "$HOME/.linuxbrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+    "/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+    "$HOME/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+  )
 
-    # Initialize FPATH if it's not set (prevents unbound variable error)
-    FPATH="${FPATH:-}"
+  for path in "${syntax_paths[@]}"; do
+    if [[ -f "$path" ]]; then
+      ensure_line_in_file "$zshrc" "source $path"
+      break
+    fi
+  done
 
-    # Add Zsh Autosuggestions
-    local autosuggestions_paths=(
-        "/usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
-        "/opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
-        "/home/linuxbrew/.linuxbrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
-        "$HOME/.linuxbrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
-        "/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
-        "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
-    )
-
-    for path in "${autosuggestions_paths[@]}"; do
-        if [[ -f "$path" ]]; then
-            ensure_line_in_file "$zshrc" "source $path"
-            break
-        fi
-    done
-
-    # Add Zsh Syntax Highlighting
-    local syntax_paths=(
-        "/usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-        "/opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-        "/home/linuxbrew/.linuxbrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-        "$HOME/.linuxbrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-        "/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-        "$HOME/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-    )
-
-    for path in "${syntax_paths[@]}"; do
-        if [[ -f "$path" ]]; then
-            ensure_line_in_file "$zshrc" "source $path"
-            break
-        fi
-    done
-
-    # Add Zsh Completions
-    if command_exists brew; then
-        local completions_script="
+  # Add Zsh Completions
+  if command_exists brew; then
+    local completions_script="
 # Zsh Completions
 if type brew &>/dev/null; then
     FPATH=\"\$(brew --prefix)/share/zsh-completions:\${FPATH}\"
@@ -396,159 +396,159 @@ if type brew &>/dev/null; then
     compinit
 fi"
 
-        if ! grep -q "Zsh Completions" "$zshrc"; then
-            if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-                log "DRY" "Would add Zsh completions configuration to $zshrc"
-            else
-                echo "$completions_script" >>"$zshrc"
-                log "INFO" "Added Zsh completions configuration to $zshrc"
-            fi
-        fi
+    if ! grep -q "Zsh Completions" "$zshrc"; then
+      if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+        log "DRY" "Would add Zsh completions configuration to $zshrc"
+      else
+        echo "$completions_script" >>"$zshrc"
+        log "INFO" "Added Zsh completions configuration to $zshrc"
+      fi
     fi
+  fi
 
-    log "SUCCESS" "Zsh plugins configured"
-    return 0
+  log "SUCCESS" "Zsh plugins configured"
+  return 0
 }
 
 # Usage: make_executable "/path/to/file"
 make_executable() {
-    local file="$1"
+  local file="$1"
 
-    if [[ ! -f "$file" ]]; then
-        log "ERROR" "File not found: $file"
-        return 1
-    fi
+  if [[ ! -f "$file" ]]; then
+    log "ERROR" "File not found: $file"
+    return 1
+  fi
 
-    if [[ -x "$file" ]]; then
-        log "INFO" "File is already executable: $file"
-        return 0
-    fi
+  if [[ -x "$file" ]]; then
+    log "INFO" "File is already executable: $file"
+    return 0
+  fi
 
-    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would make file executable: $file"
-        return 0
-    fi
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would make file executable: $file"
+    return 0
+  fi
 
-    if chmod +x "$file"; then
-        log "INFO" "Made file executable: $file"
-        return 0
-    else
-        log "ERROR" "Failed to make file executable: $file"
-        return 1
-    fi
+  if chmod +x "$file"; then
+    log "INFO" "Made file executable: $file"
+    return 0
+  else
+    log "ERROR" "Failed to make file executable: $file"
+    return 1
+  fi
 }
 
 # Usage: create_symlink "/path/to/source" "/path/to/destination"
 create_symlink() {
-    local source="$1"
-    local destination="$2"
+  local source="$1"
+  local destination="$2"
 
-    if [[ ! -e "$source" ]]; then
-        log "ERROR" "Source does not exist: $source"
-        return 1
-    fi
+  if [[ ! -e "$source" ]]; then
+    log "ERROR" "Source does not exist: $source"
+    return 1
+  fi
 
-    if [[ -L "$destination" ]] && [[ "$(readlink -f "$destination" 2>/dev/null || readlink "$destination")" == "$(readlink -f "$source" 2>/dev/null || readlink "$source")" ]]; then
-        log "INFO" "Symlink already exists and points to the correct location: $destination -> $source"
-        return 0
-    fi
+  if [[ -L "$destination" ]] && [[ "$(readlink -f "$destination" 2>/dev/null || readlink "$destination")" == "$(readlink -f "$source" 2>/dev/null || readlink "$source")" ]]; then
+    log "INFO" "Symlink already exists and points to the correct location: $destination -> $source"
+    return 0
+  fi
 
-    if [[ -e "$destination" || -L "$destination" ]]; then
-        if [[ -f "$destination" ]]; then
-            backup_file "$destination"
-        elif [[ -d "$destination" ]]; then
-            backup_directory "$destination"
-        fi
-
-        if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-            log "DRY" "Would remove existing destination: $destination"
-        else
-            rm -rf "$destination" || {
-                log "ERROR" "Failed to remove existing destination: $destination"
-                return 1
-            }
-        fi
-    fi
-
-    local parent_dir
-    parent_dir=$(dirname "$destination")
-    if [[ ! -d "$parent_dir" ]]; then
-        if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-            log "DRY" "Would create parent directory: $parent_dir"
-        else
-            mkdir -p "$parent_dir" || {
-                log "ERROR" "Failed to create parent directory: $parent_dir"
-                return 1
-            }
-        fi
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    if [[ -f "$destination" ]]; then
+      backup_file "$destination"
+    elif [[ -d "$destination" ]]; then
+      backup_directory "$destination"
     fi
 
     if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would create symlink: $destination -> $source"
-        return 0
-    fi
-
-    if ln -sf "$source" "$destination"; then
-        log "INFO" "Created symlink: $destination -> $source"
-        return 0
+      log "DRY" "Would remove existing destination: $destination"
     else
-        log "ERROR" "Failed to create symlink: $destination -> $source"
+      rm -rf "$destination" || {
+        log "ERROR" "Failed to remove existing destination: $destination"
         return 1
+      }
     fi
+  fi
+
+  local parent_dir
+  parent_dir=$(dirname "$destination")
+  if [[ ! -d "$parent_dir" ]]; then
+    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+      log "DRY" "Would create parent directory: $parent_dir"
+    else
+      mkdir -p "$parent_dir" || {
+        log "ERROR" "Failed to create parent directory: $parent_dir"
+        return 1
+      }
+    fi
+  fi
+
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would create symlink: $destination -> $source"
+    return 0
+  fi
+
+  if ln -sf "$source" "$destination"; then
+    log "INFO" "Created symlink: $destination -> $source"
+    return 0
+  else
+    log "ERROR" "Failed to create symlink: $destination -> $source"
+    return 1
+  fi
 }
 
 # Get system package manager and use it to install packages
 get_system_package_manager() {
-    if command_exists apt; then
-        echo "apt"
-    elif command_exists pacman; then
-        echo "pacman"
-    elif command_exists apk; then
-        echo "apk"
-    elif command_exists dnf; then
-        echo "dnf"
-    elif command_exists yum; then
-        echo "yum"
-    elif command_exists zypper; then
-        echo "zypper"
-    else
-        echo ""
-    fi
+  if command_exists apt; then
+    echo "apt"
+  elif command_exists pacman; then
+    echo "pacman"
+  elif command_exists apk; then
+    echo "apk"
+  elif command_exists dnf; then
+    echo "dnf"
+  elif command_exists yum; then
+    echo "yum"
+  elif command_exists zypper; then
+    echo "zypper"
+  else
+    echo ""
+  fi
 }
 
 install_with_system_package_manager() {
-    local package="$1"
-    local pkg_manager
-    pkg_manager=$(get_system_package_manager)
+  local package="$1"
+  local pkg_manager
+  pkg_manager=$(get_system_package_manager)
 
-    case "$pkg_manager" in
-    "apt")
-        execute "sudo apt update -qq && sudo apt install -y $package" "Installing $package with apt"
-        return $?
-        ;;
-    "pacman")
-        execute "sudo pacman -Sy --noconfirm $package" "Installing $package with pacman"
-        return $?
-        ;;
-    "apk")
-        execute "sudo apk add --no-cache $package" "Installing $package with apk"
-        return $?
-        ;;
-    "dnf")
-        execute "sudo dnf install -y $package" "Installing $package with dnf"
-        return $?
-        ;;
-    "yum")
-        execute "sudo yum install -y $package" "Installing $package with yum"
-        return $?
-        ;;
-    "zypper")
-        execute "sudo zypper install -y $package" "Installing $package with zypper"
-        return $?
-        ;;
-    *)
-        log "ERROR" "No supported package manager found"
-        return 1
-        ;;
-    esac
+  case "$pkg_manager" in
+  "apt")
+    execute "sudo apt update -qq && sudo apt install -y $package" "Installing $package with apt"
+    return $?
+    ;;
+  "pacman")
+    execute "sudo pacman -Sy --noconfirm $package" "Installing $package with pacman"
+    return $?
+    ;;
+  "apk")
+    execute "sudo apk add --no-cache $package" "Installing $package with apk"
+    return $?
+    ;;
+  "dnf")
+    execute "sudo dnf install -y $package" "Installing $package with dnf"
+    return $?
+    ;;
+  "yum")
+    execute "sudo yum install -y $package" "Installing $package with yum"
+    return $?
+    ;;
+  "zypper")
+    execute "sudo zypper install -y $package" "Installing $package with zypper"
+    return $?
+    ;;
+  *)
+    log "ERROR" "No supported package manager found"
+    return 1
+    ;;
+  esac
 }

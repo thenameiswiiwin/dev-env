@@ -4,107 +4,107 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 main() {
-    log "INFO" "Starting tmux setup"
+  log "INFO" "Starting tmux setup"
 
-    init_homebrew
+  init_homebrew
 
-    log "INFO" "Installing tmux"
-    install_package "tmux" || {
-        log "WARN" "Failed to install tmux with Homebrew, trying system package manager"
+  log "INFO" "Installing tmux"
+  install_package "tmux" || {
+    log "WARN" "Failed to install tmux with Homebrew, trying system package manager"
 
-        if [[ "$OS" == "Linux" ]]; then
-            install_with_system_package_manager "tmux" || {
-                log "ERROR" "Failed to install tmux with system package manager"
+    if [[ "$OS" == "Linux" ]]; then
+      install_with_system_package_manager "tmux" || {
+        log "ERROR" "Failed to install tmux with system package manager"
 
-                # Build from source as a last resort
-                log "INFO" "Trying to build tmux from source"
+        # Build from source as a last resort
+        log "INFO" "Trying to build tmux from source"
 
-                # Check and install dependencies
-                dependencies=("libevent-dev" "libncurses-dev" "build-essential")
-                for dep in "${dependencies[@]}"; do
-                    if command_exists apt; then
-                        execute "sudo apt install -y $dep" "Installing dependency: $dep"
-                    elif command_exists pacman; then
-                        # Map apt package names to pacman equivalents
-                        case "$dep" in
-                        "libevent-dev") pacman_dep="libevent" ;;
-                        "libncurses-dev") pacman_dep="ncurses" ;;
-                        "build-essential") pacman_dep="base-devel" ;;
-                        *) pacman_dep="$dep" ;;
-                        esac
-                        execute "sudo pacman -S --noconfirm $pacman_dep" "Installing dependency: $pacman_dep"
-                    elif command_exists apk; then
-                        # Map apt package names to apk equivalents
-                        case "$dep" in
-                        "libevent-dev") apk_dep="libevent-dev" ;;
-                        "libncurses-dev") apk_dep="ncurses-dev" ;;
-                        "build-essential") apk_dep="build-base" ;;
-                        *) apk_dep="$dep" ;;
-                        esac
-                        execute "sudo apk add $apk_dep" "Installing dependency: $apk_dep"
-                    fi
-                done
+        # Check and install dependencies
+        dependencies=("libevent-dev" "libncurses-dev" "build-essential")
+        for dep in "${dependencies[@]}"; do
+          if command_exists apt; then
+            execute "sudo apt install -y $dep" "Installing dependency: $dep"
+          elif command_exists pacman; then
+            # Map apt package names to pacman equivalents
+            case "$dep" in
+            "libevent-dev") pacman_dep="libevent" ;;
+            "libncurses-dev") pacman_dep="ncurses" ;;
+            "build-essential") pacman_dep="base-devel" ;;
+            *) pacman_dep="$dep" ;;
+            esac
+            execute "sudo pacman -S --noconfirm $pacman_dep" "Installing dependency: $pacman_dep"
+          elif command_exists apk; then
+            # Map apt package names to apk equivalents
+            case "$dep" in
+            "libevent-dev") apk_dep="libevent-dev" ;;
+            "libncurses-dev") apk_dep="ncurses-dev" ;;
+            "build-essential") apk_dep="build-base" ;;
+            *) apk_dep="$dep" ;;
+            esac
+            execute "sudo apk add $apk_dep" "Installing dependency: $apk_dep"
+          fi
+        done
 
-                if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                    tmp_dir=$(mktemp -d)
-                    log "INFO" "Created temporary directory: $tmp_dir"
+        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+          tmp_dir=$(mktemp -d)
+          log "INFO" "Created temporary directory: $tmp_dir"
 
-                    execute "cd $tmp_dir && git clone https://github.com/tmux/tmux.git" "Cloning tmux repository"
-                    execute "cd $tmp_dir/tmux && sh autogen.sh && ./configure && make" "Building tmux"
-                    execute "cd $tmp_dir/tmux && sudo make install" "Installing tmux"
-                    execute "rm -rf $tmp_dir" "Cleaning up temporary directory"
-                else
-                    log "DRY" "Would build and install tmux from source"
-                fi
-            }
-        fi
-    }
-
-    # Install tmux plugin manager (TPM)
-    tmux_plugin_dir="$HOME/.tmux/plugins/tpm"
-    log "INFO" "Installing tmux plugin manager"
-
-    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-        if [[ ! -d "$tmux_plugin_dir" ]]; then
-            execute "git clone https://github.com/tmux-plugins/tpm \"$tmux_plugin_dir\"" "Cloning tmux plugin manager" ||
-                log "WARN" "Failed to install tmux plugin manager"
+          execute "cd $tmp_dir && git clone https://github.com/tmux/tmux.git" "Cloning tmux repository"
+          execute "cd $tmp_dir/tmux && sh autogen.sh && ./configure && make" "Building tmux"
+          execute "cd $tmp_dir/tmux && sudo make install" "Installing tmux"
+          execute "rm -rf $tmp_dir" "Cleaning up temporary directory"
         else
-            log "INFO" "tmux plugin manager already installed"
-            execute "cd \"$tmux_plugin_dir\" && git pull" "Updating tmux plugin manager" ||
-                log "WARN" "Failed to update tmux plugin manager"
+          log "DRY" "Would build and install tmux from source"
         fi
+      }
+    fi
+  }
+
+  # Install tmux plugin manager (TPM)
+  tmux_plugin_dir="$HOME/.tmux/plugins/tpm"
+  log "INFO" "Installing tmux plugin manager"
+
+  if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    if [[ ! -d "$tmux_plugin_dir" ]]; then
+      execute "git clone https://github.com/tmux-plugins/tpm \"$tmux_plugin_dir\"" "Cloning tmux plugin manager" ||
+        log "WARN" "Failed to install tmux plugin manager"
     else
-        log "DRY" "Would install tmux plugin manager"
+      log "INFO" "tmux plugin manager already installed"
+      execute "cd \"$tmux_plugin_dir\" && git pull" "Updating tmux plugin manager" ||
+        log "WARN" "Failed to update tmux plugin manager"
     fi
+  else
+    log "DRY" "Would install tmux plugin manager"
+  fi
 
-    # Create tmux configuration directory
-    tmux_config_dir="$XDG_CONFIG_HOME/tmux"
-    if [[ ! -d "$tmux_config_dir" ]]; then
-        log "INFO" "Creating tmux configuration directory"
-        execute "mkdir -p \"$tmux_config_dir\"" "Creating directory"
-    fi
+  # Create tmux configuration directory
+  tmux_config_dir="$XDG_CONFIG_HOME/tmux"
+  if [[ ! -d "$tmux_config_dir" ]]; then
+    log "INFO" "Creating tmux configuration directory"
+    execute "mkdir -p \"$tmux_config_dir\"" "Creating directory"
+  fi
 
-    # Create symlink for backward compatibility
-    if [[ ! -f "$HOME/.tmux.conf" ]]; then
-        log "INFO" "Creating symlink for backward compatibility"
-        execute "ln -sf \"$tmux_config_dir/tmux.conf\" \"$HOME/.tmux.conf\"" "Creating symlink"
-    fi
+  # Create symlink for backward compatibility
+  if [[ ! -f "$HOME/.tmux.conf" ]]; then
+    log "INFO" "Creating symlink for backward compatibility"
+    execute "ln -sf \"$tmux_config_dir/tmux.conf\" \"$HOME/.tmux.conf\"" "Creating symlink"
+  fi
 
-    # Verify installation
-    if command_exists tmux; then
-        tmux_version=$(tmux -V)
-        log "INFO" "tmux installed successfully: $tmux_version"
-    else
-        log "WARN" "tmux installation could not be verified"
-    fi
+  # Verify installation
+  if command_exists tmux; then
+    tmux_version=$(tmux -V)
+    log "INFO" "tmux installed successfully: $tmux_version"
+  else
+    log "WARN" "tmux installation could not be verified"
+  fi
 
-    log "SUCCESS" "tmux setup completed"
-    return 0
+  log "SUCCESS" "tmux setup completed"
+  return 0
 }
 
 main

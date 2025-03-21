@@ -4,124 +4,124 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 main() {
-    log "INFO" "Starting Neovim setup"
+  log "INFO" "Starting Neovim setup"
 
-    init_homebrew
+  init_homebrew
 
-    log "INFO" "Installing Neovim"
-    if ! install_package "neovim"; then
-        log "WARN" "Homebrew installation failed, trying alternative methods"
+  log "INFO" "Installing Neovim"
+  if ! install_package "neovim"; then
+    log "WARN" "Homebrew installation failed, trying alternative methods"
 
-        if [[ "$OS" == "Linux" ]]; then
-            # Try distribution-specific repositories first
-            if command_exists apt; then
-                log "INFO" "Installing Neovim via apt repository"
-                if execute "sudo add-apt-repository -y ppa:neovim-ppa/unstable" "Adding Neovim PPA"; then
-                    if execute "sudo apt update" "Updating apt repositories"; then
-                        execute "sudo apt install -y neovim" "Installing Neovim" || log "ERROR" "Failed to install Neovim package"
-                    else
-                        log "ERROR" "Failed to update apt repositories"
-                    fi
-                else
-                    log "ERROR" "Failed to add Neovim PPA"
-                fi
-            elif command_exists pacman; then
-                log "INFO" "Installing Neovim via pacman"
-                execute "sudo pacman -Sy --noconfirm neovim" "Installing Neovim with pacman"
-            elif command_exists apk; then
-                log "INFO" "Installing Neovim via apk"
-                execute "sudo apk add --no-cache neovim" "Installing Neovim with apk"
-            elif command_exists dnf; then
-                log "INFO" "Installing Neovim via dnf"
-                execute "sudo dnf install -y neovim" "Installing Neovim with dnf"
-            else
-                # Try AppImage as a last resort
-                log "INFO" "Trying to install Neovim AppImage"
-                execute "mkdir -p $HOME/.local/bin" "Creating local bin directory"
-                execute "curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage" "Downloading Neovim AppImage"
-                execute "chmod u+x nvim.appimage" "Making AppImage executable"
-                execute "mv nvim.appimage $HOME/.local/bin/nvim" "Moving AppImage to bin directory"
-            fi
-        elif [[ "$OS" == "Darwin" ]]; then
-            # Try the --HEAD option for macOS
-            log "INFO" "Trying to install Neovim with --HEAD flag"
-            execute "brew install --HEAD neovim" "Installing Neovim with --HEAD flag"
-        else
-            log "ERROR" "Unable to install Neovim, manual installation required"
-            return 1
-        fi
-    fi
-
-    log "INFO" "Installing Neovim dependencies"
-    dependencies=(
-        "python3" # For Python support
-        "curl"    # For downloading plugins
-        "gettext" # Required for some plugins
-        "ripgrep" # For Telescope plugin
-    )
-
-    # Additional dependencies based on OS
     if [[ "$OS" == "Linux" ]]; then
-        dependencies+=("xclip") # For clipboard support on Linux
-    fi
-
-    for dep in "${dependencies[@]}"; do
-        if ! command_exists "$dep" && ! brew_installed "$dep"; then
-            log "INFO" "Installing dependency: $dep"
-            install_package "$dep" || install_with_system_package_manager "$dep" || log "WARN" "Failed to install $dep"
+      # Try distribution-specific repositories first
+      if command_exists apt; then
+        log "INFO" "Installing Neovim via apt repository"
+        if execute "sudo add-apt-repository -y ppa:neovim-ppa/unstable" "Adding Neovim PPA"; then
+          if execute "sudo apt update" "Updating apt repositories"; then
+            execute "sudo apt install -y neovim" "Installing Neovim" || log "ERROR" "Failed to install Neovim package"
+          else
+            log "ERROR" "Failed to update apt repositories"
+          fi
         else
-            log "INFO" "Dependency already installed: $dep"
+          log "ERROR" "Failed to add Neovim PPA"
         fi
-    done
-
-    # Create Neovim configuration directory
-    nvim_config_dir="$XDG_CONFIG_HOME/nvim"
-    if [[ ! -d "$nvim_config_dir" ]]; then
-        log "INFO" "Creating Neovim configuration directory"
-        execute "mkdir -p \"$nvim_config_dir\"" "Creating directory"
-    fi
-
-    # Set up Python support for Neovim
-    if command_exists python3 && command_exists pip3; then
-        log "INFO" "Setting up Python support for Neovim"
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            pip3 install --user pynvim 2>/dev/null || pip3 install --user pynvim --break-system-packages 2>/dev/null || log "WARN" "Failed to install pynvim"
-        else
-            log "DRY" "Would install pynvim for Python support"
-        fi
-    fi
-
-    # Set up Node.js support for Neovim
-    if command_exists npm; then
-        log "INFO" "Setting up Node.js support for Neovim"
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            npm install -g neovim 2>/dev/null || log "WARN" "Failed to install neovim npm package"
-        else
-            log "DRY" "Would install neovim npm package"
-        fi
-    fi
-
-    # Install a modern clipboard provider if needed
-    if [[ "$OS" == "Linux" ]] && ! command_exists xclip && ! command_exists xsel; then
-        log "INFO" "Installing clipboard provider"
-        install_with_system_package_manager "xclip" || install_with_system_package_manager "xsel" || log "WARN" "Failed to install clipboard provider"
-    fi
-
-    # Verify installation
-    if command_exists nvim; then
-        nvim_version=$(nvim --version | head -n 1)
-        log "INFO" "Neovim installed successfully: $nvim_version"
+      elif command_exists pacman; then
+        log "INFO" "Installing Neovim via pacman"
+        execute "sudo pacman -Sy --noconfirm neovim" "Installing Neovim with pacman"
+      elif command_exists apk; then
+        log "INFO" "Installing Neovim via apk"
+        execute "sudo apk add --no-cache neovim" "Installing Neovim with apk"
+      elif command_exists dnf; then
+        log "INFO" "Installing Neovim via dnf"
+        execute "sudo dnf install -y neovim" "Installing Neovim with dnf"
+      else
+        # Try AppImage as a last resort
+        log "INFO" "Trying to install Neovim AppImage"
+        execute "mkdir -p $HOME/.local/bin" "Creating local bin directory"
+        execute "curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage" "Downloading Neovim AppImage"
+        execute "chmod u+x nvim.appimage" "Making AppImage executable"
+        execute "mv nvim.appimage $HOME/.local/bin/nvim" "Moving AppImage to bin directory"
+      fi
+    elif [[ "$OS" == "Darwin" ]]; then
+      # Try the --HEAD option for macOS
+      log "INFO" "Trying to install Neovim with --HEAD flag"
+      execute "brew install --HEAD neovim" "Installing Neovim with --HEAD flag"
     else
-        log "WARN" "Neovim installation could not be verified"
+      log "ERROR" "Unable to install Neovim, manual installation required"
+      return 1
     fi
+  fi
 
-    log "SUCCESS" "Neovim setup completed"
-    return 0
+  log "INFO" "Installing Neovim dependencies"
+  dependencies=(
+    "python3" # For Python support
+    "curl"    # For downloading plugins
+    "gettext" # Required for some plugins
+    "ripgrep" # For Telescope plugin
+  )
+
+  # Additional dependencies based on OS
+  if [[ "$OS" == "Linux" ]]; then
+    dependencies+=("xclip") # For clipboard support on Linux
+  fi
+
+  for dep in "${dependencies[@]}"; do
+    if ! command_exists "$dep" && ! brew_installed "$dep"; then
+      log "INFO" "Installing dependency: $dep"
+      install_package "$dep" || install_with_system_package_manager "$dep" || log "WARN" "Failed to install $dep"
+    else
+      log "INFO" "Dependency already installed: $dep"
+    fi
+  done
+
+  # Create Neovim configuration directory
+  nvim_config_dir="$XDG_CONFIG_HOME/nvim"
+  if [[ ! -d "$nvim_config_dir" ]]; then
+    log "INFO" "Creating Neovim configuration directory"
+    execute "mkdir -p \"$nvim_config_dir\"" "Creating directory"
+  fi
+
+  # Set up Python support for Neovim
+  if command_exists python3 && command_exists pip3; then
+    log "INFO" "Setting up Python support for Neovim"
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      pip3 install --user pynvim 2>/dev/null || pip3 install --user pynvim --break-system-packages 2>/dev/null || log "WARN" "Failed to install pynvim"
+    else
+      log "DRY" "Would install pynvim for Python support"
+    fi
+  fi
+
+  # Set up Node.js support for Neovim
+  if command_exists npm; then
+    log "INFO" "Setting up Node.js support for Neovim"
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      npm install -g neovim 2>/dev/null || log "WARN" "Failed to install neovim npm package"
+    else
+      log "DRY" "Would install neovim npm package"
+    fi
+  fi
+
+  # Install a modern clipboard provider if needed
+  if [[ "$OS" == "Linux" ]] && ! command_exists xclip && ! command_exists xsel; then
+    log "INFO" "Installing clipboard provider"
+    install_with_system_package_manager "xclip" || install_with_system_package_manager "xsel" || log "WARN" "Failed to install clipboard provider"
+  fi
+
+  # Verify installation
+  if command_exists nvim; then
+    nvim_version=$(nvim --version | head -n 1)
+    log "INFO" "Neovim installed successfully: $nvim_version"
+  else
+    log "WARN" "Neovim installation could not be verified"
+  fi
+
+  log "SUCCESS" "Neovim setup completed"
+  return 0
 }
 
 main

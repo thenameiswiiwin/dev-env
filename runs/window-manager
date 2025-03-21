@@ -4,165 +4,165 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 configure_rectangle() {
-    local config_src="$DEV_ENV/env/.config/rectangle/RectangleConfig.json"
-    local config_dest="$HOME/Library/Application Support/Rectangle/RectangleConfig.json"
+  local config_src="$DEV_ENV/env/.config/rectangle/RectangleConfig.json"
+  local config_dest="$HOME/Library/Application Support/Rectangle/RectangleConfig.json"
 
-    if [[ -f "$config_src" ]]; then
-        log "INFO" "Setting up Rectangle configuration"
+  if [[ -f "$config_src" ]]; then
+    log "INFO" "Setting up Rectangle configuration"
 
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            mkdir -p "$(dirname "$config_dest")" 2>/dev/null || log "WARN" "Failed to create Rectangle config directory"
-            cp "$config_src" "$config_dest" 2>/dev/null || log "WARN" "Failed to copy Rectangle configuration"
-        else
-            log "DRY" "Would copy Rectangle configuration to $config_dest"
-        fi
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      mkdir -p "$(dirname "$config_dest")" 2>/dev/null || log "WARN" "Failed to create Rectangle config directory"
+      cp "$config_src" "$config_dest" 2>/dev/null || log "WARN" "Failed to copy Rectangle configuration"
     else
-        log "WARN" "Rectangle configuration not found at $config_src"
+      log "DRY" "Would copy Rectangle configuration to $config_dest"
     fi
+  else
+    log "WARN" "Rectangle configuration not found at $config_src"
+  fi
 }
 
 configure_i3() {
-    local config_src="$DEV_ENV/env/.config/i3/config"
-    local config_dest="$XDG_CONFIG_HOME/i3/config"
+  local config_src="$DEV_ENV/env/.config/i3/config"
+  local config_dest="$XDG_CONFIG_HOME/i3/config"
 
-    if [[ -f "$config_src" ]]; then
-        log "INFO" "Setting up i3 configuration"
+  if [[ -f "$config_src" ]]; then
+    log "INFO" "Setting up i3 configuration"
 
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            mkdir -p "$(dirname "$config_dest")" 2>/dev/null || log "WARN" "Failed to create i3 config directory"
-            cp "$config_src" "$config_dest" 2>/dev/null || log "WARN" "Failed to copy i3 configuration"
-        else
-            log "DRY" "Would copy i3 configuration to $config_dest"
-        fi
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      mkdir -p "$(dirname "$config_dest")" 2>/dev/null || log "WARN" "Failed to create i3 config directory"
+      cp "$config_src" "$config_dest" 2>/dev/null || log "WARN" "Failed to copy i3 configuration"
     else
-        log "WARN" "i3 configuration not found at $config_src"
+      log "DRY" "Would copy i3 configuration to $config_dest"
     fi
+  else
+    log "WARN" "i3 configuration not found at $config_src"
+  fi
 
-    # Configure rofi if it's installed
-    if command_exists rofi; then
-        local rofi_config_dir="$XDG_CONFIG_HOME/rofi"
-        local rofi_src_dir="$DEV_ENV/env/.config/i3/rofi"
+  # Configure rofi if it's installed
+  if command_exists rofi; then
+    local rofi_config_dir="$XDG_CONFIG_HOME/rofi"
+    local rofi_src_dir="$DEV_ENV/env/.config/i3/rofi"
 
-        if [[ -d "$rofi_src_dir" ]]; then
-            log "INFO" "Setting up rofi configuration"
+    if [[ -d "$rofi_src_dir" ]]; then
+      log "INFO" "Setting up rofi configuration"
 
-            if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                mkdir -p "$rofi_config_dir" 2>/dev/null || log "WARN" "Failed to create rofi config directory"
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        mkdir -p "$rofi_config_dir" 2>/dev/null || log "WARN" "Failed to create rofi config directory"
 
-                # Copy all rofi configuration files
-                for file in "$rofi_src_dir"/*; do
-                    if [[ -f "$file" ]]; then
-                        cp "$file" "$rofi_config_dir/" || log "WARN" "Failed to copy $(basename "$file")"
-                    fi
-                done
-            else
-                log "DRY" "Would copy rofi configuration to $rofi_config_dir"
-            fi
-        else
-            log "INFO" "No rofi configuration found in repository"
-        fi
+        # Copy all rofi configuration files
+        for file in "$rofi_src_dir"/*; do
+          if [[ -f "$file" ]]; then
+            cp "$file" "$rofi_config_dir/" || log "WARN" "Failed to copy $(basename "$file")"
+          fi
+        done
+      else
+        log "DRY" "Would copy rofi configuration to $rofi_config_dir"
+      fi
+    else
+      log "INFO" "No rofi configuration found in repository"
     fi
+  fi
 }
 
 install_linux_wm_dependencies() {
-    log "INFO" "Installing window manager dependencies"
+  log "INFO" "Installing window manager dependencies"
 
-    # Common dependencies
-    dependencies=(
-        "xorg"
-        "xinit"
-        "feh"   # For setting background
-        "dunst" # Notification daemon
-        "rofi"  # Application launcher
-        "picom" # Compositor
-    )
+  # Common dependencies
+  dependencies=(
+    "xorg"
+    "xinit"
+    "feh"   # For setting background
+    "dunst" # Notification daemon
+    "rofi"  # Application launcher
+    "picom" # Compositor
+  )
 
-    # Install dependencies based on package manager
-    if command_exists apt; then
-        execute "sudo apt update" "Updating apt repositories"
+  # Install dependencies based on package manager
+  if command_exists apt; then
+    execute "sudo apt update" "Updating apt repositories"
 
-        for dep in "${dependencies[@]}"; do
-            execute "sudo apt install -y $dep" "Installing $dep" || log "WARN" "Failed to install $dep"
-        done
-    elif command_exists pacman; then
-        for dep in "${dependencies[@]}"; do
-            execute "sudo pacman -Sy --noconfirm $dep" "Installing $dep" || log "WARN" "Failed to install $dep"
-        done
-    elif command_exists apk; then
-        for dep in "${dependencies[@]}"; do
-            execute "sudo apk add --no-cache $dep" "Installing $dep" || log "WARN" "Failed to install $dep"
-        done
-    else
-        log "WARN" "No supported package manager found for installing dependencies"
-    fi
+    for dep in "${dependencies[@]}"; do
+      execute "sudo apt install -y $dep" "Installing $dep" || log "WARN" "Failed to install $dep"
+    done
+  elif command_exists pacman; then
+    for dep in "${dependencies[@]}"; do
+      execute "sudo pacman -Sy --noconfirm $dep" "Installing $dep" || log "WARN" "Failed to install $dep"
+    done
+  elif command_exists apk; then
+    for dep in "${dependencies[@]}"; do
+      execute "sudo apk add --no-cache $dep" "Installing $dep" || log "WARN" "Failed to install $dep"
+    done
+  else
+    log "WARN" "No supported package manager found for installing dependencies"
+  fi
 }
 
 main() {
-    log "INFO" "Starting window manager setup"
+  log "INFO" "Starting window manager setup"
 
-    init_homebrew
+  init_homebrew
 
-    if [[ "$OS" == "Darwin" ]]; then
-        log "INFO" "Installing Rectangle window manager (macOS)"
-        install_cask "rectangle" || log "WARN" "Failed to install Rectangle"
+  if [[ "$OS" == "Darwin" ]]; then
+    log "INFO" "Installing Rectangle window manager (macOS)"
+    install_cask "rectangle" || log "WARN" "Failed to install Rectangle"
 
-        configure_rectangle
+    configure_rectangle
 
-        log "INFO" "Installing additional window management tools"
-        additional_casks=(
-            # "alt-tab" # Better Alt-Tab app switching
-        )
+    log "INFO" "Installing additional window management tools"
+    additional_casks=(
+      # "alt-tab" # Better Alt-Tab app switching
+    )
 
-        for cask in "${additional_casks[@]}"; do
-            log "INFO" "Installing $cask"
-            install_cask "$cask" || log "WARN" "Failed to install $cask"
-        done
+    for cask in "${additional_casks[@]}"; do
+      log "INFO" "Installing $cask"
+      install_cask "$cask" || log "WARN" "Failed to install $cask"
+    done
 
-    elif [[ "$OS" == "Linux" ]]; then
-        log "INFO" "Installing i3 window manager (Linux)"
+  elif [[ "$OS" == "Linux" ]]; then
+    log "INFO" "Installing i3 window manager (Linux)"
 
-        if brew install i3 2>/dev/null; then
-            log "INFO" "i3 installed successfully with Homebrew"
-        else
-            log "WARN" "Homebrew installation failed, trying distribution package manager"
+    if brew install i3 2>/dev/null; then
+      log "INFO" "i3 installed successfully with Homebrew"
+    else
+      log "WARN" "Homebrew installation failed, trying distribution package manager"
 
-            if command_exists apt; then
-                log "INFO" "Installing i3 with apt"
-                install_linux_wm_dependencies
-                execute "sudo apt update" "Updating apt repositories" &&
-                    execute "sudo apt install -y i3 i3-wm i3status dunst i3lock" "Installing i3" ||
-                    log "WARN" "Failed to install i3 with apt"
-            elif command_exists pacman; then
-                log "INFO" "Installing i3 with pacman"
-                install_linux_wm_dependencies
-                execute "sudo pacman -Syu --noconfirm i3-wm i3status i3lock dmenu" "Installing i3" ||
-                    log "WARN" "Failed to install i3 with pacman"
-            elif command_exists apk; then
-                log "INFO" "Installing i3 with apk"
-                install_linux_wm_dependencies
-                execute "sudo apk add --no-cache i3wm i3status i3lock" "Installing i3" ||
-                    log "WARN" "Failed to install i3 with apk"
-            else
-                log "ERROR" "Could not install i3 - no supported package manager found"
-                return 1
-            fi
-        fi
+      if command_exists apt; then
+        log "INFO" "Installing i3 with apt"
+        install_linux_wm_dependencies
+        execute "sudo apt update" "Updating apt repositories" &&
+          execute "sudo apt install -y i3 i3-wm i3status dunst i3lock" "Installing i3" ||
+          log "WARN" "Failed to install i3 with apt"
+      elif command_exists pacman; then
+        log "INFO" "Installing i3 with pacman"
+        install_linux_wm_dependencies
+        execute "sudo pacman -Syu --noconfirm i3-wm i3status i3lock dmenu" "Installing i3" ||
+          log "WARN" "Failed to install i3 with pacman"
+      elif command_exists apk; then
+        log "INFO" "Installing i3 with apk"
+        install_linux_wm_dependencies
+        execute "sudo apk add --no-cache i3wm i3status i3lock" "Installing i3" ||
+          log "WARN" "Failed to install i3 with apk"
+      else
+        log "ERROR" "Could not install i3 - no supported package manager found"
+        return 1
+      fi
+    fi
 
-        configure_i3
+    configure_i3
 
-        # Configure X11 settings
-        log "INFO" "Configuring X11 settings"
+    # Configure X11 settings
+    log "INFO" "Configuring X11 settings"
 
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            # Create .xinitrc if it doesn't exist
-            if [[ ! -f "$HOME/.xinitrc" ]]; then
-                log "INFO" "Creating .xinitrc file"
-                cat >"$HOME/.xinitrc" <<EOF
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      # Create .xinitrc if it doesn't exist
+      if [[ ! -f "$HOME/.xinitrc" ]]; then
+        log "INFO" "Creating .xinitrc file"
+        cat >"$HOME/.xinitrc" <<EOF
 #!/bin/sh
 
 # Source system xinitrc scripts
@@ -179,23 +179,23 @@ fi
 # Start i3 window manager
 exec i3
 EOF
-                chmod +x "$HOME/.xinitrc"
-            fi
+        chmod +x "$HOME/.xinitrc"
+      fi
 
-            # Ensure .xprofile is executable
-            if [[ -f "$HOME/.xprofile" ]]; then
-                chmod +x "$HOME/.xprofile"
-            fi
-        else
-            log "DRY" "Would configure X11 settings"
-        fi
+      # Ensure .xprofile is executable
+      if [[ -f "$HOME/.xprofile" ]]; then
+        chmod +x "$HOME/.xprofile"
+      fi
     else
-        log "ERROR" "Unsupported operating system: $OS"
-        return 1
+      log "DRY" "Would configure X11 settings"
     fi
+  else
+    log "ERROR" "Unsupported operating system: $OS"
+    return 1
+  fi
 
-    log "SUCCESS" "Window manager setup completed"
-    return 0
+  log "SUCCESS" "Window manager setup completed"
+  return 0
 }
 
 main

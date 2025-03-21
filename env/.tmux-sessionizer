@@ -3,149 +3,149 @@
 
 # Skip for home directory - don't unnecessarily run in home
 if [[ "$(pwd)" == "$HOME" || "$(pwd)" == "$HOME/personal" ]]; then
-    clear
-    echo "No project-specific setup needed for home directory."
-    return
+  clear
+  echo "No project-specific setup needed for home directory."
+  return
 fi
 
 # Check if we're in a git repository
 if git rev-parse --is-inside-work-tree &>/dev/null; then
-    git_root=$(git rev-parse --show-toplevel)
-    session_name=$(basename "$git_root" | tr . _ | tr ' ' _)
+  git_root=$(git rev-parse --show-toplevel)
+  session_name=$(basename "$git_root" | tr . _ | tr ' ' _)
 
-    # Get current window name
-    current_window=$(tmux display-message -p '#W')
+  # Get current window name
+  current_window=$(tmux display-message -p '#W')
 
-    # Create a layout based on the project type
-    if [[ -f "$git_root/package.json" ]]; then
-        # Node.js project
-        echo "Setting up Node.js project environment"
+  # Create a layout based on the project type
+  if [[ -f "$git_root/package.json" ]]; then
+    # Node.js project
+    echo "Setting up Node.js project environment"
 
-        # Rename current window to "edit" if it's the default name
-        if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
-            tmux rename-window -t 1 "edit"
-        fi
-
-        # Create additional windows if they don't exist
-        tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
-        tmux has-session -t "$session_name:server" 2>/dev/null || tmux new-window -t "$session_name" -n "server"
-        tmux has-session -t "$session_name:test" 2>/dev/null || tmux new-window -t "$session_name" -n "test"
-
-        # Set up commands in each window
-        tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
-        tmux send-keys -t "$session_name:server" "cd $git_root && clear" C-m
-        tmux send-keys -t "$session_name:test" "cd $git_root && clear" C-m
-
-        # Return to edit window
-        tmux select-window -t "$session_name:edit"
-
-    elif [[ -f "$git_root/go.mod" ]]; then
-        # Go project
-        echo "Setting up Go project environment"
-
-        # Rename current window to "edit" if it's the default name
-        if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
-            tmux rename-window -t 1 "edit"
-        fi
-
-        # Create additional windows if they don't exist
-        tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
-        tmux has-session -t "$session_name:run" 2>/dev/null || tmux new-window -t "$session_name" -n "run"
-        tmux has-session -t "$session_name:test" 2>/dev/null || tmux new-window -t "$session_name" -n "test"
-
-        # Set up commands in each window
-        tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
-        tmux send-keys -t "$session_name:run" "cd $git_root && clear" C-m
-        tmux send-keys -t "$session_name:test" "cd $git_root && clear" C-m
-
-        # Return to edit window
-        tmux select-window -t "$session_name:edit"
-
-    elif [[ -f "$git_root/Cargo.toml" ]]; then
-        # Rust project
-        echo "Setting up Rust project environment"
-
-        # Rename current window to "edit" if it's the default name
-        if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
-            tmux rename-window -t 1 "edit"
-        fi
-
-        # Create additional windows if they don't exist
-        tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
-        tmux has-session -t "$session_name:build" 2>/dev/null || tmux new-window -t "$session_name" -n "build"
-        tmux has-session -t "$session_name:test" 2>/dev/null || tmux new-window -t "$session_name" -n "test"
-
-        # Set up commands in each window
-        tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
-        tmux send-keys -t "$session_name:build" "cd $git_root && clear" C-m
-        tmux send-keys -t "$session_name:test" "cd $git_root && clear" C-m
-
-        # Return to edit window
-        tmux select-window -t "$session_name:edit"
-
-    elif [[ -f "$git_root/composer.json" ]]; then
-        # PHP project
-        echo "Setting up PHP project environment"
-
-        # Rename current window to "edit" if it's the default name
-        if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
-            tmux rename-window -t 1 "edit"
-        fi
-
-        # Create additional windows if they don't exist
-        tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
-        tmux has-session -t "$session_name:server" 2>/dev/null || tmux new-window -t "$session_name" -n "server"
-        tmux has-session -t "$session_name:test" 2>/dev/null || tmux new-window -t "$session_name" -n "test"
-
-        # Set up commands in each window
-        tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
-        tmux send-keys -t "$session_name:server" "cd $git_root && clear" C-m
-        tmux send-keys -t "$session_name:test" "cd $git_root && clear" C-m
-
-        # Return to edit window
-        tmux select-window -t "$session_name:edit"
-
-    else
-        # Generic project
-        echo "Setting up generic project environment"
-
-        # Rename current window to "edit" if it's the default name
-        if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
-            tmux rename-window -t 1 "edit"
-        fi
-
-        # Create a shell window if it doesn't exist
-        tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
-
-        # Set up command in shell window
-        tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
-
-        # Return to edit window
-        tmux select-window -t "$session_name:edit"
+    # Rename current window to "edit" if it's the default name
+    if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
+      tmux rename-window -t 1 "edit"
     fi
 
-    # Open Neovim in the current window if it's the "edit" window
-    if [[ "$(tmux display-message -p '#W')" == "edit" ]]; then
-        vim .
+    # Create additional windows if they don't exist
+    tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
+    tmux has-session -t "$session_name:server" 2>/dev/null || tmux new-window -t "$session_name" -n "server"
+    tmux has-session -t "$session_name:test" 2>/dev/null || tmux new-window -t "$session_name" -n "test"
+
+    # Set up commands in each window
+    tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
+    tmux send-keys -t "$session_name:server" "cd $git_root && clear" C-m
+    tmux send-keys -t "$session_name:test" "cd $git_root && clear" C-m
+
+    # Return to edit window
+    tmux select-window -t "$session_name:edit"
+
+  elif [[ -f "$git_root/go.mod" ]]; then
+    # Go project
+    echo "Setting up Go project environment"
+
+    # Rename current window to "edit" if it's the default name
+    if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
+      tmux rename-window -t 1 "edit"
     fi
+
+    # Create additional windows if they don't exist
+    tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
+    tmux has-session -t "$session_name:run" 2>/dev/null || tmux new-window -t "$session_name" -n "run"
+    tmux has-session -t "$session_name:test" 2>/dev/null || tmux new-window -t "$session_name" -n "test"
+
+    # Set up commands in each window
+    tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
+    tmux send-keys -t "$session_name:run" "cd $git_root && clear" C-m
+    tmux send-keys -t "$session_name:test" "cd $git_root && clear" C-m
+
+    # Return to edit window
+    tmux select-window -t "$session_name:edit"
+
+  elif [[ -f "$git_root/Cargo.toml" ]]; then
+    # Rust project
+    echo "Setting up Rust project environment"
+
+    # Rename current window to "edit" if it's the default name
+    if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
+      tmux rename-window -t 1 "edit"
+    fi
+
+    # Create additional windows if they don't exist
+    tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
+    tmux has-session -t "$session_name:build" 2>/dev/null || tmux new-window -t "$session_name" -n "build"
+    tmux has-session -t "$session_name:test" 2>/dev/null || tmux new-window -t "$session_name" -n "test"
+
+    # Set up commands in each window
+    tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
+    tmux send-keys -t "$session_name:build" "cd $git_root && clear" C-m
+    tmux send-keys -t "$session_name:test" "cd $git_root && clear" C-m
+
+    # Return to edit window
+    tmux select-window -t "$session_name:edit"
+
+  elif [[ -f "$git_root/composer.json" ]]; then
+    # PHP project
+    echo "Setting up PHP project environment"
+
+    # Rename current window to "edit" if it's the default name
+    if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
+      tmux rename-window -t 1 "edit"
+    fi
+
+    # Create additional windows if they don't exist
+    tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
+    tmux has-session -t "$session_name:server" 2>/dev/null || tmux new-window -t "$session_name" -n "server"
+    tmux has-session -t "$session_name:test" 2>/dev/null || tmux new-window -t "$session_name" -n "test"
+
+    # Set up commands in each window
+    tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
+    tmux send-keys -t "$session_name:server" "cd $git_root && clear" C-m
+    tmux send-keys -t "$session_name:test" "cd $git_root && clear" C-m
+
+    # Return to edit window
+    tmux select-window -t "$session_name:edit"
+
+  else
+    # Generic project
+    echo "Setting up generic project environment"
+
+    # Rename current window to "edit" if it's the default name
+    if [[ "$current_window" == "$session_name" || "$current_window" == "1" || "$current_window" == "main" ]]; then
+      tmux rename-window -t 1 "edit"
+    fi
+
+    # Create a shell window if it doesn't exist
+    tmux has-session -t "$session_name:shell" 2>/dev/null || tmux new-window -t "$session_name" -n "shell"
+
+    # Set up command in shell window
+    tmux send-keys -t "$session_name:shell" "cd $git_root && clear" C-m
+
+    # Return to edit window
+    tmux select-window -t "$session_name:edit"
+  fi
+
+  # Open Neovim in the current window if it's the "edit" window
+  if [[ "$(tmux display-message -p '#W')" == "edit" ]]; then
+    vim .
+  fi
 else
-    # Not a git repository, set up a simple environment
+  # Not a git repository, set up a simple environment
 
-    # Create a new window for scratch commands
-    current_window=$(tmux display-message -p '#W')
-    if [[ "$current_window" == "1" || "$current_window" == "main" ]]; then
-        tmux rename-window -t 1 "edit"
-    fi
+  # Create a new window for scratch commands
+  current_window=$(tmux display-message -p '#W')
+  if [[ "$current_window" == "1" || "$current_window" == "main" ]]; then
+    tmux rename-window -t 1 "edit"
+  fi
 
-    tmux has-session -t "scratch" 2>/dev/null || tmux new-window -dn "scratch"
+  tmux has-session -t "scratch" 2>/dev/null || tmux new-window -dn "scratch"
 
-    # Return to first window
-    tmux select-window -t 1
+  # Return to first window
+  tmux select-window -t 1
 
-    # Open Neovim in the current directory
-    if [[ "$(tmux display-message -p '#W')" == "edit" ]]; then
-        vim .
-    fi
+  # Open Neovim in the current directory
+  if [[ "$(tmux display-message -p '#W')" == "edit" ]]; then
+    vim .
+  fi
 fi
 
 # Clear the screen

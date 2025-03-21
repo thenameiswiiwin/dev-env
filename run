@@ -12,62 +12,62 @@ export DEV_ENV="${DEV_ENV:-$HOME/dev}"
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 
 if ! source "$script_dir/utilities" 2>/dev/null; then
-    echo "Warning: Failed to source utilities, using built-in functions"
+  echo "Warning: Failed to source utilities, using built-in functions"
 
-    COLOR_RED="\033[1;31m"
-    COLOR_GREEN="\033[1;32m"
-    COLOR_YELLOW="\033[1;33m"
-    COLOR_BLUE="\033[1;34m"
-    COLOR_CYAN="\033[1;36m"
-    COLOR_RESET="\033[0m"
+  COLOR_RED="\033[1;31m"
+  COLOR_GREEN="\033[1;32m"
+  COLOR_YELLOW="\033[1;33m"
+  COLOR_BLUE="\033[1;34m"
+  COLOR_CYAN="\033[1;36m"
+  COLOR_RESET="\033[0m"
 
-    log() {
-        local level="$1"
-        local message="$2"
-        local color=""
+  log() {
+    local level="$1"
+    local message="$2"
+    local color=""
 
-        case "$level" in
-        SUCCESS) color="$COLOR_GREEN" ;;
-        INFO) color="$COLOR_BLUE" ;;
-        WARN) color="$COLOR_YELLOW" ;;
-        ERROR) color="$COLOR_RED" ;;
-        DRY) color="$COLOR_CYAN" ;;
-        esac
+    case "$level" in
+    SUCCESS) color="$COLOR_GREEN" ;;
+    INFO) color="$COLOR_BLUE" ;;
+    WARN) color="$COLOR_YELLOW" ;;
+    ERROR) color="$COLOR_RED" ;;
+    DRY) color="$COLOR_CYAN" ;;
+    esac
 
-        if [[ ${DRY_RUN:-0} -eq 1 && "$level" != "DRY" ]]; then
-            echo -e "${COLOR_CYAN}[DRY_RUN]${COLOR_RESET} $message"
-        else
-            echo -e "${color}[$level]${COLOR_RESET} $message"
-        fi
-    }
+    if [[ ${DRY_RUN:-0} -eq 1 && "$level" != "DRY" ]]; then
+      echo -e "${COLOR_CYAN}[DRY_RUN]${COLOR_RESET} $message"
+    else
+      echo -e "${color}[$level]${COLOR_RESET} $message"
+    fi
+  }
 
-    check_required_env() {
-        local var_name="$1"
-        if [[ -z "${!var_name:-}" ]]; then
-            log "ERROR" "Required environment variable $var_name is not set"
-            return 1
-        fi
+  check_required_env() {
+    local var_name="$1"
+    if [[ -z "${!var_name:-}" ]]; then
+      log "ERROR" "Required environment variable $var_name is not set"
+      return 1
+    fi
+    return 0
+  }
+
+  execute() {
+    local cmd="$1"
+    local description="${2:-Executing command}"
+
+    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+      log "DRY" "$description: $cmd"
+      return 0
+    else
+      log "INFO" "$description"
+      if eval "$cmd"; then
         return 0
-    }
-
-    execute() {
-        local cmd="$1"
-        local description="${2:-Executing command}"
-
-        if [[ ${DRY_RUN:-0} -eq 1 ]]; then
-            log "DRY" "$description: $cmd"
-            return 0
-        else
-            log "INFO" "$description"
-            if eval "$cmd"; then
-                return 0
-            else
-                local exit_code=$?
-                log "ERROR" "Command failed with exit code $exit_code: $cmd"
-                return "$exit_code"
-            fi
-        fi
-    }
+      else
+        local exit_code=$?
+        log "ERROR" "Command failed with exit code $exit_code: $cmd"
+        return "$exit_code"
+      fi
+    fi
+  }
 fi
 
 dry_run=0
@@ -75,34 +75,34 @@ force_install=0
 grep_pattern=""
 
 while [[ $# -gt 0 ]]; do
-    case "$1" in
-    --dry)
-        dry_run=1
-        export DRY_RUN=1
-        ;;
-    --force)
-        force_install=1
-        export FORCE_INSTALL=1
-        ;;
-    *)
-        grep_pattern="$1"
-        ;;
-    esac
-    shift
+  case "$1" in
+  --dry)
+    dry_run=1
+    export DRY_RUN=1
+    ;;
+  --force)
+    force_install=1
+    export FORCE_INSTALL=1
+    ;;
+  *)
+    grep_pattern="$1"
+    ;;
+  esac
+  shift
 done
 
 if ! check_required_env "DEV_ENV"; then
-    exit 1
+  exit 1
 fi
 
 log "INFO" "Environment: $DEV_ENV -- Filter: ${grep_pattern:-none}"
 
 runs_dir="$script_dir/runs"
 if [[ ! -d "$runs_dir" ]]; then
-    log "ERROR" "Directory not found: $runs_dir"
-    log "INFO" "Current directory: $(pwd)"
-    log "INFO" "Script directory: $script_dir"
-    exit 1
+  log "ERROR" "Directory not found: $runs_dir"
+  log "INFO" "Current directory: $(pwd)"
+  log "INFO" "Script directory: $script_dir"
+  exit 1
 fi
 
 log "INFO" "Ensuring scripts in runs directory are executable"
@@ -111,20 +111,20 @@ find "$runs_dir" -type f -exec chmod +x {} \; 2>/dev/null || log "WARN" "Could n
 log "INFO" "Finding scripts to run"
 run_scripts=()
 while IFS= read -r script; do
-    if [[ -f "$script" ]]; then
-        run_scripts+=("$script")
-    fi
+  if [[ -f "$script" ]]; then
+    run_scripts+=("$script")
+  fi
 done < <(find "$runs_dir" -type f 2>/dev/null)
 
 if [[ ${#run_scripts[@]} -eq 0 ]]; then
-    log "ERROR" "No script files found in $runs_dir"
-    log "INFO" "Directory contents:"
-    ls -la "$runs_dir" || echo "Could not list directory contents"
+  log "ERROR" "No script files found in $runs_dir"
+  log "INFO" "Directory contents:"
+  ls -la "$runs_dir" || echo "Could not list directory contents"
 
-    log "INFO" "Trying alternative find command..."
-    find "$runs_dir" -type f -name "*" -print || echo "Alternative find failed"
+  log "INFO" "Trying alternative find command..."
+  find "$runs_dir" -type f -name "*" -print || echo "Alternative find failed"
 
-    exit 1
+  exit 1
 fi
 
 log "INFO" "Found ${#run_scripts[@]} script(s) to process"
@@ -133,57 +133,57 @@ IFS=$'\n' sorted_scripts=($(sort <<<"${run_scripts[*]}"))
 unset IFS
 
 for script in "${sorted_scripts[@]}"; do
-    script_name=$(basename "$script")
+  script_name=$(basename "$script")
 
-    if [[ -n "$grep_pattern" ]] && ! echo "$script_name" | grep -q "$grep_pattern"; then
-        log "INFO" "Filtered out: $script_name"
-        continue
-    fi
+  if [[ -n "$grep_pattern" ]] && ! echo "$script_name" | grep -q "$grep_pattern"; then
+    log "INFO" "Filtered out: $script_name"
+    continue
+  fi
 
-    if [[ ! -x "$script" ]]; then
-        log "INFO" "Making script executable: $script_name"
-        if [[ $dry_run -eq 0 ]]; then
-            chmod +x "$script" || {
-                log "ERROR" "Failed to make script executable: $script"
-                continue
-            }
-        fi
-    fi
-
-    log "INFO" "Running script: $script_name"
+  if [[ ! -x "$script" ]]; then
+    log "INFO" "Making script executable: $script_name"
     if [[ $dry_run -eq 0 ]]; then
-        if [[ $force_install -eq 1 ]]; then
-            if FORCE_INSTALL=1 bash "$script"; then
-                log "SUCCESS" "Script $script_name completed successfully"
-            else
-                exit_code=$?
-                log "ERROR" "Script $script_name failed with exit code $exit_code"
-
-                # Critical scripts that must succeed
-                if [[ "$script_name" == "libs" || "$script_name" == "zsh" ]]; then
-                    log "ERROR" "Critical script failed, aborting"
-                    exit $exit_code
-                else
-                    log "WARN" "Non-critical script failed, continuing"
-                fi
-            fi
-        else
-            if bash "$script"; then
-                log "SUCCESS" "Script $script_name completed successfully"
-            else
-                exit_code=$?
-                log "ERROR" "Script $script_name failed with exit code $exit_code"
-
-                # Critical scripts that must succeed
-                if [[ "$script_name" == "libs" || "$script_name" == "zsh" ]]; then
-                    log "ERROR" "Critical script failed, aborting"
-                    exit $exit_code
-                else
-                    log "WARN" "Non-critical script failed, continuing"
-                fi
-            fi
-        fi
+      chmod +x "$script" || {
+        log "ERROR" "Failed to make script executable: $script"
+        continue
+      }
     fi
+  fi
+
+  log "INFO" "Running script: $script_name"
+  if [[ $dry_run -eq 0 ]]; then
+    if [[ $force_install -eq 1 ]]; then
+      if FORCE_INSTALL=1 bash "$script"; then
+        log "SUCCESS" "Script $script_name completed successfully"
+      else
+        exit_code=$?
+        log "ERROR" "Script $script_name failed with exit code $exit_code"
+
+        # Critical scripts that must succeed
+        if [[ "$script_name" == "libs" || "$script_name" == "zsh" ]]; then
+          log "ERROR" "Critical script failed, aborting"
+          exit $exit_code
+        else
+          log "WARN" "Non-critical script failed, continuing"
+        fi
+      fi
+    else
+      if bash "$script"; then
+        log "SUCCESS" "Script $script_name completed successfully"
+      else
+        exit_code=$?
+        log "ERROR" "Script $script_name failed with exit code $exit_code"
+
+        # Critical scripts that must succeed
+        if [[ "$script_name" == "libs" || "$script_name" == "zsh" ]]; then
+          log "ERROR" "Critical script failed, aborting"
+          exit $exit_code
+        else
+          log "WARN" "Non-critical script failed, continuing"
+        fi
+      fi
+    fi
+  fi
 done
 
 log "SUCCESS" "Execution completed"

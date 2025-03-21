@@ -4,93 +4,93 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 main() {
-    log "INFO" "Starting libs setup"
+  log "INFO" "Starting libs setup"
 
-    init_homebrew
+  init_homebrew
 
-    # Core utilities to install
-    local packages=(
-        "git"      # Version control
-        "gh"       # Github
-        "ripgrep"  # Fast grep alternative
-        "wget"     # File downloader
-        "jq"       # JSON processor
-        "fd"       # Fast find alternative
-        "fzf"      # Fuzzy finder
-        "tree"     # Directory structure visualizer
-        "tealdeer" # TL;DR pages client (simplified man pages)
-    )
+  # Core utilities to install
+  local packages=(
+    "git"      # Version control
+    "gh"       # Github
+    "ripgrep"  # Fast grep alternative
+    "wget"     # File downloader
+    "jq"       # JSON processor
+    "fd"       # Fast find alternative
+    "fzf"      # Fuzzy finder
+    "tree"     # Directory structure visualizer
+    "tealdeer" # TL;DR pages client (simplified man pages)
+  )
 
-    # OS-specific packages
-    if [[ "$OS" == "Linux" ]]; then
-        packages+=("xclip") # Clipboard utility for Linux
-    elif [[ "$OS" == "Darwin" ]]; then
-        packages+=("coreutils") # GNU core utilities
-        packages+=("findutils") # GNU find utilities
-        packages+=("gnu-sed")   # GNU sed
-        packages+=("grep")      # GNU grep
+  # OS-specific packages
+  if [[ "$OS" == "Linux" ]]; then
+    packages+=("xclip") # Clipboard utility for Linux
+  elif [[ "$OS" == "Darwin" ]]; then
+    packages+=("coreutils") # GNU core utilities
+    packages+=("findutils") # GNU find utilities
+    packages+=("gnu-sed")   # GNU sed
+    packages+=("grep")      # GNU grep
+  fi
+
+  # Install each package
+  for package in "${packages[@]}"; do
+    log "INFO" "Installing $package"
+    install_package "$package" || {
+      log "WARN" "Failed to install $package with Homebrew, trying system package manager"
+      install_with_system_package_manager "$package" || log "ERROR" "Failed to install $package"
+    }
+  done
+
+  # Verify installations
+  log "INFO" "Verifying installations"
+  for package in "${packages[@]}"; do
+    if command_exists "$package" || brew_installed "$package"; then
+      log "INFO" "$package is installed"
+    else
+      log "WARN" "$package installation could not be verified"
+    fi
+  done
+
+  # Configure fzf
+  if brew_installed "fzf" || command_exists fzf; then
+    log "INFO" "Setting up fzf key bindings and completion"
+    local fzf_base
+
+    if brew_installed "fzf"; then
+      fzf_base="$(brew --prefix)/opt/fzf"
+    elif [[ -d "$HOME/.fzf" ]]; then
+      fzf_base="$HOME/.fzf"
     fi
 
-    # Install each package
-    for package in "${packages[@]}"; do
-        log "INFO" "Installing $package"
-        install_package "$package" || {
-            log "WARN" "Failed to install $package with Homebrew, trying system package manager"
-            install_with_system_package_manager "$package" || log "ERROR" "Failed to install $package"
-        }
-    done
-
-    # Verify installations
-    log "INFO" "Verifying installations"
-    for package in "${packages[@]}"; do
-        if command_exists "$package" || brew_installed "$package"; then
-            log "INFO" "$package is installed"
-        else
-            log "WARN" "$package installation could not be verified"
-        fi
-    done
-
-    # Configure fzf
-    if brew_installed "fzf" || command_exists fzf; then
-        log "INFO" "Setting up fzf key bindings and completion"
-        local fzf_base
-
-        if brew_installed "fzf"; then
-            fzf_base="$(brew --prefix)/opt/fzf"
-        elif [[ -d "$HOME/.fzf" ]]; then
-            fzf_base="$HOME/.fzf"
-        fi
-
-        if [[ -n "${fzf_base:-}" ]]; then
-            if [[ -f "$fzf_base/install" ]]; then
-                if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                    "$fzf_base/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
-                else
-                    log "DRY" "Would install fzf key bindings and completion"
-                fi
-            else
-                log "WARN" "fzf install script not found"
-            fi
-        fi
-    fi
-
-    # Configure tealdeer (tldr)
-    if command_exists tldr; then
-        log "INFO" "Updating tldr pages"
+    if [[ -n "${fzf_base:-}" ]]; then
+      if [[ -f "$fzf_base/install" ]]; then
         if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            tldr --update || log "WARN" "Failed to update tldr pages"
+          "$fzf_base/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
         else
-            log "DRY" "Would update tldr pages"
+          log "DRY" "Would install fzf key bindings and completion"
         fi
+      else
+        log "WARN" "fzf install script not found"
+      fi
     fi
+  fi
 
-    log "SUCCESS" "Libs setup completed"
-    return 0
+  # Configure tealdeer (tldr)
+  if command_exists tldr; then
+    log "INFO" "Updating tldr pages"
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      tldr --update || log "WARN" "Failed to update tldr pages"
+    else
+      log "DRY" "Would update tldr pages"
+    fi
+  fi
+
+  log "SUCCESS" "Libs setup completed"
+  return 0
 }
 
 main
