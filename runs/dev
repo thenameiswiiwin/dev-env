@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+if ! source "$script_dir/../utilities" 2>/dev/null; then
+    echo "Failed to source utilities"
+    exit 1
+fi
+
+main() {
+    log "INFO" "Starting dev setup"
+
+    init_homebrew
+
+    log "INFO" "Configuring Git"
+    execute "git config --global user.email \"huyn.nguyen95@gmail.com\"" "Setting Git email"
+    execute "git config --global user.name \"thenameiswiiwin\"" "Setting Git name"
+    execute "git config --global push.autoSetupRemote true" "Setting Git auto setup remote"
+    execute "git config --global init.defaultBranch main" "Setting default branch to main"
+
+    # Development tools to install
+    local packages=(
+        "lazygit"  # Git UI
+        "luarocks" # Lua package manager
+        "luacheck" # Lua static analyzer
+    )
+
+    for package in "${packages[@]}"; do
+        log "INFO" "Installing $package"
+        install_package "$package" || log "WARN" "Failed to install $package"
+    done
+
+    log "INFO" "Verifying installations"
+    for package in "${packages[@]}"; do
+        if command_exists "$package" || brew_installed "$package"; then
+            log "INFO" "$package is installed"
+        else
+            log "WARN" "$package installation could not be verified"
+        fi
+    done
+
+    log "SUCCESS" "Dev setup completed"
+    return 0
+}
+
+main
+exit $?

@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PROJECTS_DIR="${PROJECTS_DIR:-$HOME/dev}"
+
+usage() {
+    echo "Usage: project [command] [arguments]"
+    echo "Commands:"
+    echo "  create [name] [type]   Create new project (types: node, react, go, rust, python)"
+    echo "  list                   List existing projects"
+    echo "  open [name]            Open project in editor"
+    echo "  clone [repo-url]       Clone a repository and set it up"
+    exit 1
+}
+
+create_project() {
+    local name="$1"
+    local type="${2:-node}"
+    local project_dir="$PROJECTS_DIR/$name"
+
+    if [[ -d "$project_dir" ]]; then
+        echo "Project $name already exists"
+        exit 1
+    fi
+
+    mkdir -p "$project_dir"
+    cd "$project_dir"
+
+    case "$type" in
+    node)
+        npm init -y
+        echo "node_modules" >.gitignore
+        mkdir -p src
+        ;;
+    react)
+        npx create-react-app .
+        ;;
+    go)
+        go mod init "github.com/$(whoami)/$name"
+        mkdir -p cmd pkg internal
+        echo "bin/" >.gitignore
+        ;;
+    rust)
+        cargo init
+        ;;
+    python)
+        python3 -m venv .venv
+        echo ".venv" >.gitignore
+        echo "*.pyc" >>.gitignore
+        echo "__pycache__" >>.gitignore
+        mkdir -p src tests
+        ;;
+    *)
+        echo "Unknown project type: $type"
+        exit 1
+        ;;
+    esac
+
+    git init
+    git add .
+    git commit -m "Initial commit"
+
+    echo "Project $name created successfully (type: $type)"
+    echo "Location: $project_dir"
+}
+
+list_projects() {
+    echo "Projects in $PROJECTS_DIR:"
+    find "$PROJECTS_DIR" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | sort
+}
+
+open_project() {
+    local name="$1"
+    local project_dir="$PROJECTS_DIR/$name"
+
+    if [[ ! -d "$project_dir" ]]; then
+        echo "Project $name not found"
+        exit 1
+    fi
+
+    cd "$project_dir"
+
+    if command -v tmux-sessionizer &>/dev/null; then
+        tmux-sessionizer "$project_dir"
+    elif command -v tmux &>/dev/null; then
+        tmux new-session -d -s "$name" -c "$project_dir" 2>/dev/null || tmux switch-client -t "$name"
+        $EDITOR .
+    else
+        $EDITOR .
+    fi
+}
+
+clone_project() {
+    local repo_url="$1"
+    local name=$(basename "$repo_url" .git)
+    local project_dir="$PROJECTS_DIR/$name"
+
+    git clone "$repo_url" "$project_dir"
+    cd "$project_dir"
+
+    # Auto-setup based on repo content
+    if [[ -f "package.json" ]]; then
+        echo "Installing Node.js dependencies..."
+        npm install
+    elif [[ -f "go.mod" ]]; then
+        echo "Downloading Go dependencies..."
+        go mod download
+    elif [[ -f "Cargo.toml" ]]; then
+        echo "Fetching Rust dependencies..."
+        cargo fetch
+    elif [[ -f "requirements.txt" ]]; then
+        echo "Setting up Python environment..."
+        python3 -m venv .venv
+        .venv/bin/pip install -r requirements.txt
+    fi
+
+    echo "Repository cloned successfully to $project_dir"
+}
+
+# Main command handling
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+command="$1"
+shift
+
+case "$command" in
+create)
+    if [[ $# -lt 1 ]]; then
+        echo "Error: Project name required"
+        usage
+    fi
+    create_project "$@"
+    ;;
+list)
+    list_projects
+    ;;
+open)
+    if [[ $# -lt 1 ]]; then
+        echo "Error: Project name required"
+        usage
+    fi
+    open_project "$1"
+    ;;
+clone)
+    if [[ $# -lt 1 ]]; then
+        echo "Error: Repository URL required"
+        usage
+    fi
+    clone_project "$1"
+    ;;
+*)
+    echo "Unknown command: $command"
+    usage
+    ;;
+esac

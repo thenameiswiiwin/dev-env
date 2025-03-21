@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+    echo "Git workflow helpers"
+    echo "Usage: git-workflow [command] [arguments]"
+    echo "Commands:"
+    echo "  feature [name]      Create a new feature branch"
+    echo "  hotfix [name]       Create a new hotfix branch"
+    echo "  release [version]   Create a new release branch"
+    echo "  finish [branch]     Merge branch back to development"
+    echo "  publish [branch]    Push branch to remote and create PR"
+    echo "  sync                Sync branches with remote"
+    echo "  undo-commit         Undo the last commit (keeps changes)"
+    echo "  clean               Clean up local branches"
+    exit 1
+}
+
+git_feature() {
+    local name="$1"
+    local base_branch="${2:-develop}"
+
+    echo "Creating feature branch: feature/$name from $base_branch"
+    git checkout "$base_branch"
+    git pull origin "$base_branch"
+    git checkout -b "feature/$name"
+    echo "Branch created: feature/$name"
+    echo "Make your changes and then use: git-workflow finish feature/$name"
+}
+
+git_hotfix() {
+    local name="$1"
+    echo "Creating hotfix branch: hotfix/$name from main"
+    git checkout main
+    git pull origin main
+    git checkout -b "hotfix/$name"
+    echo "Branch created: hotfix/$name"
+    echo "Make your fixes and then use: git-workflow finish hotfix/$name"
+}
+
+git_release() {
+    local version="$1"
+    echo "Creating release branch: release/$version from develop"
+    git checkout develop
+    git pull origin develop
+    git checkout -b "release/$version"
+    echo "Branch created: release/$version"
+    echo "Prepare release and then use: git-workflow finish release/$version"
+}
+
+git_finish() {
+    local branch="$1"
+
+    # Determine type based on branch prefix
+    if [[ "$branch" == feature/* ]]; then
+        local target="develop"
+    elif [[ "$branch" == hotfix/* ]]; then
+        local target="main"
+    elif [[ "$branch" == release/* ]]; then
+        local target="main"
+    else
+        echo "Unknown branch type: $branch"
+        echo "Please use feature/*, hotfix/*, or release/* prefix"
+        exit 1
+    fi
+
+    echo "Finishing branch $branch into $target"
+    git checkout "$branch"
+    git pull origin "$branch" || true # In case branch isn't pushed yet
+
+    # Make sure target is up to date
+    git checkout "$target"
+    git pull origin "$target"
+
+    # Merge branch into target
+    git merge --no-ff "$branch" -m "Merge $branch into $target"
+
+    # If target is main and branch is release/hotfix, also merge into develop
+    if [[ "$target" == "main" ]]; then
+        echo "Also merging $branch into develop"
+        git checkout develop
+        git pull origin develop
+        git merge --no-ff "$branch" -m "Merge $branch into develop"
+        git push origin develop
+    fi
+
+    # Push target branch
+    git checkout "$target"
+    git push origin "$target"
+
+    echo "Branch $branch merged successfully into $target"
+    echo "You can delete the branch with: git branch -d $branch"
+}
+
+git_publish() {
+    local branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
+
+    echo "Publishing branch $branch to remote"
+    git push -u origin "$branch"
+
+    # Determine if we can create a PR
+    local remote_url=$(git remote get-url origin)
+    if [[ "$remote_url" == *"github.com"* ]]; then
+        # Extract repo info from GitHub URL
+        local repo=$(echo "$remote_url" | sed -e 's/.*github.com[:\/]\(.*\)\.git/\1/')
+
+        echo "Creating GitHub PR for $branch"
+        if command -v gh &>/dev/null; then
+            # Use GitHub CLI if available
+            gh pr create --fill
+        else
+            # Provide link to create PR
+            echo "Visit https://github.com/$repo/pull/new/$branch to create PR"
+        fi
+    elif [[ "$remote_url" == *"gitlab.com"* ]]; then
+        # Extract repo info from GitLab URL
+        local repo=$(echo "$remote_url" | sed -e 's/.*gitlab.com[:\/]\(.*\)\.git/\1/')
+
+        echo "Visit https://gitlab.com/$repo/-/merge_requests/new?merge_request[source_branch]=$branch to create MR"
+    else
+        echo "Branch pushed to remote: $branch"
+    fi
+}
+
+git_sync() {
+    echo "Syncing branches with remote..."
+
+    # Backup current branch
+    local current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+    # Update main branches
+    for branch in main develop; do
+        echo "Updating $branch..."
+        if git show-ref --verify --quiet refs/heads/$branch; then
+            git checkout "$branch"
+            git pull origin "$branch"
+        fi
+    done
+
+    # Prune remote branches
+    echo "Pruning removed remote branches..."
+    git fetch --prune
+
+    # Return to original branch
+    git checkout "$current_branch"
+    echo "Branch synchronization completed"
+}
+
+git_undo_commit() {
+    echo "Undoing last commit (keeping changes)..."
+    git reset --soft HEAD~1
+    echo "Last commit undone. Changes preserved and ready to be committed again."
+}
+
+git_clean() {
+    echo "Cleaning up merged branches..."
+
+    # Save current branch
+    local current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+    # Get main branches
+    git checkout main
+    git pull origin main
+    git checkout develop
+    git pull origin develop
+
+    # Find merged branches
+    local merged_branches=$(git branch --merged develop | grep -v "^\*" | grep -v "main" | grep -v "develop")
+
+    if [[ -n "$merged_branches" ]]; then
+        echo "The following branches are merged and can be deleted:"
+        echo "$merged_branches"
+
+        read -p "Delete these branches? (y/n): " confirm
+        if [[ "$confirm" == [yY] ]]; then
+            echo "$merged_branches" | xargs git branch -d
+            echo "Branches deleted"
+        else
+            echo "Cleanup canceled"
+        fi
+    else
+        echo "No merged branches found to clean up"
+    fi
+
+    # Return to original branch
+    git checkout "$current_branch"
+}
+
+# Main command handling
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+command="$1"
+shift
+
+case "$command" in
+feature)
+    if [[ $# -lt 1 ]]; then
+        echo "Error: Feature name required"
+        usage
+    fi
+    git_feature "$1" "${2:-}"
+    ;;
+hotfix)
+    if [[ $# -lt 1 ]]; then
+        echo "Error: Hotfix name required"
+        usage
+    fi
+    git_hotfix "$1"
+    ;;
+release)
+    if [[ $# -lt 1 ]]; then
+        echo "Error: Release version required"
+        usage
+    fi
+    git_release "$1"
+    ;;
+finish)
+    if [[ $# -lt 1 ]]; then
+        echo "Error: Branch name required"
+        usage
+    fi
+    git_finish "$1"
+    ;;
+publish)
+    git_publish "${1:-}"
+    ;;
+sync)
+    git_sync
+    ;;
+undo-commit)
+    git_undo_commit
+    ;;
+clean)
+    git_clean
+    ;;
+*)
+    echo "Unknown command: $command"
+    usage
+    ;;
+esac

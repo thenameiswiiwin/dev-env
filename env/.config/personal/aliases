@@ -1,0 +1,37 @@
+# Git shortcuts
+alias gs="git status"
+alias ga="git add"
+alias gc="git commit -m"
+alias gp="git push"
+alias gl="git pull"
+alias gd="git diff"
+alias gco="git checkout"
+alias gb="git branch"
+alias gst="git stash"
+alias gstp="git stash pop"
+alias glg="git log --graph --oneline --decorate"
+
+# Navigation
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+alias .....="cd ../../../.."
+
+# Common directories
+alias dev="cd $HOME/dev"
+alias personal="cd $HOME/personal"
+alias config="cd $XDG_CONFIG_HOME"
+alias dots="cd $DEV_ENV"
+
+# Improved commands
+alias cp="cp -i"
+alias mv="mv -i"
+alias rm="rm -i"
+alias mkdir="mkdir -p"
+alias df="df -h"
+alias du="du -h"
+alias free="free -m"
+
+# Quick edits
+alias zshrc="$EDITOR $ZDOTDIR/.zshrc"
+alias vimrc="$EDITOR $XDG_CONFIG_HOME/nvim/init.lua"

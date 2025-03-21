@@ -1,0 +1,71 @@
+name: Test Dev Env
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-linux:
+    name: Test on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Set up environment
+        run: |
+          export DEV_ENV=$HOME/dev
+          export XDG_CONFIG_HOME=$HOME/.config
+          mkdir -p $DEV_ENV $XDG_CONFIG_HOME
+
+      - name: Test utilities
+        run: |
+          cp -r . $HOME/dev/
+          cd $HOME/dev
+          source ./utilities
+          command_exists bash
+
+      - name: Test dry run mode
+        run: |
+          cd $HOME/dev
+          ./run --dry
+
+      - name: Test init
+        run: |
+          cd $HOME/dev
+          ./init
+
+  test-macos:
+    name: Test on macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Set up environment
+        run: |
+          export DEV_ENV=$HOME/dev
+          export XDG_CONFIG_HOME=$HOME/.config
+          mkdir -p $DEV_ENV $XDG_CONFIG_HOME
+
+      - name: Test utilities
+        run: |
+          cp -r . $HOME/dev/
+          cd $HOME/dev
+          source ./utilities
+          command_exists bash
+
+      - name: Test dry run mode
+        run: |
+          cd $HOME/dev
+          ./run --dry
+
+      - name: Test init
+        run: |
+          cd $HOME/dev
+          ./init

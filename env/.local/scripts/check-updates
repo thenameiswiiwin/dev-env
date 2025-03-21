@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+
+set -e
+
+OS="$(uname -s)"
+echo "Checking for updates..."
+
+# Check Homebrew updates
+if command -v brew &>/dev/null; then
+    echo "Checking Homebrew packages..."
+    brew update >/dev/null
+    outdated=$(brew outdated)
+    if [[ -n "$outdated" ]]; then
+        echo "Homebrew packages that need updating:"
+        echo "$outdated"
+        echo ""
+    else
+        echo "All Homebrew packages are up to date."
+    fi
+fi
+
+# Check Node.js updates
+if command -v npm &>/dev/null; then
+    echo "Checking npm global packages..."
+    outdated=$(npm -g outdated --parseable)
+    if [[ -n "$outdated" ]]; then
+        echo "NPM global packages that need updating:"
+        echo "$outdated" | awk -F: '{print $2 " (" $3 " -> " $4 ")"}'
+        echo ""
+    else
+        echo "All npm global packages are up to date."
+    fi
+fi
+
+# Check Cargo updates
+if command -v cargo &>/dev/null; then
+    echo "Checking Cargo packages..."
+    if command -v cargo-outdated &>/dev/null; then
+        outdated=$(cargo outdated --root-deps-only)
+        if [[ "$outdated" != *"All is up to date"* ]]; then
+            echo "Cargo packages that need updating:"
+            echo "$outdated" | grep -v "Name" | grep -v "----" | grep -v "^$"
+            echo ""
+        else
+            echo "All Cargo packages are up to date."
+        fi
+    else
+        echo "Install cargo-outdated for better cargo update checking."
+    fi
+fi
+
+# Check system updates
+if [[ "$OS" == "Darwin" ]]; then
+    echo "Checking macOS software updates..."
+    updates=$(softwareupdate -l 2>/dev/null)
+    if [[ "$updates" != *"No new software available"* ]]; then
+        echo "macOS updates available:"
+        echo "$updates" | grep -v "Software Update Tool" | grep -F "*"
+    else
+        echo "macOS is up to date."
+    fi
+elif [[ "$OS" == "Linux" ]]; then
+    if command -v apt &>/dev/null; then
+        echo "Checking apt updates..."
+        sudo apt update >/dev/null
+        updates=$(apt list --upgradable 2>/dev/null)
+        if [[ "$updates" != "Listing..." ]]; then
+            echo "APT packages that need updating:"
+            echo "$updates" | grep -v "Listing..."
+        else
+            echo "All apt packages are up to date."
+        fi
+    elif command -v pacman &>/dev/null; then
+        echo "Checking Arch updates..."
+        sudo pacman -Sy >/dev/null
+        updates=$(pacman -Qu)
+        if [[ -n "$updates" ]]; then
+            echo "Pacman packages that need updating:"
+            echo "$updates"
+        else
+            echo "All pacman packages are up to date."
+        fi
+    fi
+fi
+
+echo "Update check completed!"

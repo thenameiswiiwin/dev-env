@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+# zsh - Script to install Zsh shell and related tools
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+if ! source "$script_dir/../utilities" 2>/dev/null; then
+    echo "Failed to source utilities"
+    exit 1
+fi
+
+# Install Oh My Zsh
+install_oh_my_zsh() {
+    if [[ -d "$HOME/.oh-my-zsh" ]]; then
+        log "INFO" "Oh My Zsh is already installed"
+
+        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+            log "INFO" "Updating Oh My Zsh"
+            execute "cd \"$HOME/.oh-my-zsh\" && git pull" "Updating Oh My Zsh"
+        else
+            log "DRY" "Would update Oh My Zsh"
+        fi
+
+        return 0
+    fi
+
+    log "INFO" "Installing Oh My Zsh"
+    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+        log "DRY" "Would install Oh My Zsh"
+        return 0
+    fi
+
+    # Install with curl
+    if curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -o /tmp/oh-my-zsh-install.sh; then
+        sh /tmp/oh-my-zsh-install.sh --unattended
+        rm /tmp/oh-my-zsh-install.sh
+        return 0
+    else
+        log "ERROR" "Failed to download Oh My Zsh installer"
+
+        # Try alternate method
+        log "INFO" "Trying alternative installation method for Oh My Zsh"
+        execute "git clone https://github.com/ohmyzsh/ohmyzsh.git \"$HOME/.oh-my-zsh\"" "Cloning Oh My Zsh repository"
+
+        # Create basic .zshrc if it doesn't exist
+        if [[ ! -f "$HOME/.zshrc" ]]; then
+            cp "$HOME/.oh-my-zsh/templates/zshrc.zsh-template" "$HOME/.zshrc"
+        fi
+
+        return $?
+    fi
+}
+
+# Install Zsh plugins
+install_zsh_plugins() {
+    local plugins=(
+        "zsh-autosuggestions"
+        "zsh-syntax-highlighting"
+        "zsh-completions"
+    )
+
+    for plugin in "${plugins[@]}"; do
+        log "INFO" "Installing $plugin"
+        install_package "$plugin" || {
+            log "WARN" "Failed to install $plugin with Homebrew, trying custom installation"
+
+            # Install custom plugins to Oh My Zsh custom directory
+            local custom_dir="$HOME/.oh-my-zsh/custom/plugins"
+
+            if [[ -d "$custom_dir" ]]; then
+                case "$plugin" in
+                    "zsh-autosuggestions")
+                        if [[ ! -d "$custom_dir/zsh-autosuggestions" ]]; then
+                            log "INFO" "Installing zsh-autosuggestions as custom plugin"
+                            execute "git clone https://github.com/zsh-users/zsh-autosuggestions \"$custom_dir/zsh-autosuggestions\"" "Cloning zsh-autosuggestions" ||
+                            log "WARN" "Failed to install zsh-autosuggestions as custom plugin"
+                        else
+                            log "INFO" "Updating zsh-autosuggestions"
+                            execute "cd \"$custom_dir/zsh-autosuggestions\" && git pull" "Updating zsh-autosuggestions"
+                        fi
+                        ;;
+                    "zsh-syntax-highlighting")
+                        if [[ ! -d "$custom_dir/zsh-syntax-highlighting" ]]; then
+                            log "INFO" "Installing zsh-syntax-highlighting as custom plugin"
+                            execute "git clone https://github.com/zsh-users/zsh-syntax-highlighting \"$custom_dir/zsh-syntax-highlighting\"" "Cloning zsh-syntax-highlighting" ||
+                            log "WARN" "Failed to install zsh-syntax-highlighting as custom plugin"
+                        else
+                            log "INFO" "Updating zsh-syntax-highlighting"
+                            execute "cd \"$custom_dir/zsh-syntax-highlighting\" && git pull" "Updating zsh-syntax-highlighting"
+                        fi
+                        ;;
+                    "zsh-completions")
+                        if [[ ! -d "$custom_dir/zsh-completions" ]]; then
+                            log "INFO" "Installing zsh-completions as custom plugin"
+                            execute "git clone https://github.com/zsh-users/zsh-completions \"$custom_dir/zsh-completions\"" "Cloning zsh-completions" ||
+                            log "WARN" "Failed to install zsh-completions as custom plugin"
+                        else
+                            log "INFO" "Updating zsh-completions"
+                            execute "cd \"$custom_dir/zsh-completions\" && git pull" "Updating zsh-completions"
+                        fi
+                        ;;
+                esac
+            fi
+        }
+    done
+
+    # Create a custom theme directory
+    local themes_dir="$HOME/.oh-my-zsh/custom/themes"
+    if [[ ! -d "$themes_dir" ]]; then
+        log "INFO" "Creating custom themes directory"
+        execute "mkdir -p \"$themes_dir\"" "Creating directory"
+    fi
+}
+
+# Set Zsh as the default shell
+set_zsh_as_default() {
+    if [[ "$SHELL" == *"zsh"* ]]; then
+        log "INFO" "Zsh is already the default shell"
+        return 0
+    fi
+
+    log "INFO" "Setting Zsh as the default shell"
+    zsh_path=$(command -v zsh)
+
+    if [[ -z "$zsh_path" ]]; then
+        # Try to find Homebrew's zsh
+        if command_exists brew; then
+            zsh_path="$(brew --prefix 2>/dev/null)/bin/zsh"
+        fi
+
+        if [[ ! -f "$zsh_path" ]]; then
+            log "ERROR" "Zsh executable not found"
+            return 1
+        fi
+    fi
+
+    # Create a symlink in /usr/local/bin for systems that might not find Homebrew's zsh
+    log "INFO" "Creating a symlink to zsh in /usr/local/bin"
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        execute "sudo mkdir -p /usr/local/bin" "Creating /usr/local/bin directory"
+        execute "sudo ln -sf \"$zsh_path\" /usr/local/bin/zsh" "Creating symlink" ||
+            log "WARN" "Failed to create symlink, trying to continue anyway"
+    else
+        log "DRY" "Would create symlink from $zsh_path to /usr/local/bin/zsh"
+    fi
+
+    # Check if Zsh is in /etc/shells
+    if ! grep -q "$zsh_path" /etc/shells 2>/dev/null; then
+        log "INFO" "Adding $zsh_path to /etc/shells"
+        if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+            log "DRY" "Would add $zsh_path to /etc/shells"
+        else
+            execute "echo \"$zsh_path\" | sudo tee -a /etc/shells >/dev/null" "Adding Zsh to /etc/shells" ||
+                log "WARN" "Failed to add Zsh to /etc/shells"
+        fi
+    fi
+
+    # Also add the symlink to /etc/shells
+    if ! grep -q "/usr/local/bin/zsh" /etc/shells 2>/dev/null; then
+        log "INFO" "Adding /usr/local/bin/zsh to /etc/shells"
+        if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+            log "DRY" "Would add /usr/local/bin/zsh to /etc/shells"
+        else
+            execute "echo \"/usr/local/bin/zsh\" | sudo tee -a /etc/shells >/dev/null" "Adding /usr/local/bin/zsh to /etc/shells" ||
+                log "WARN" "Failed to add /usr/local/bin/zsh to /etc/shells"
+        fi
+    fi
+
+    # Change the default shell
+    if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+        log "DRY" "Would change default shell to Zsh"
+    else
+        execute "chsh -s \"$zsh_path\"" "Changing default shell" || {
+            log "WARN" "Failed to set Zsh as default shell with $zsh_path, trying with /usr/local/bin/zsh"
+
+            # Try with the symlinked version as a fallback
+            execute "chsh -s /usr/local/bin/zsh" "Changing default shell (using symlink)" || {
+                log "WARN" "Failed to set Zsh as default shell with chsh"
+
+                # Last resort - try with usermod on Linux
+                if [[ "$OS" == "Linux" ]] && command_exists usermod; then
+                    execute "sudo usermod -s \"$zsh_path\" \"$USER\"" "Changing default shell with usermod" ||
+                        log "ERROR" "Failed to set Zsh as default shell"
+                fi
+            }
+        }
+    fi
+
+    return 0
+}
+
+main() {
+    log "INFO" "Starting Zsh setup"
+
+    # Initialize Homebrew
+    init_homebrew
+
+    # Install Zsh
+    log "INFO" "Installing Zsh"
+    install_package "zsh" || {
+        log "WARN" "Failed to install Zsh with Homebrew, trying system package manager"
+
+        if [[ "$OS" == "Linux" ]]; then
+            install_with_system_package_manager "zsh" || {
+                log "ERROR" "Failed to install Zsh, aborting"
+                return 1
+            }
+        else
+            log "ERROR" "Failed to install Zsh, aborting"
+            return 1
+        fi
+    }
+
+    # Update PATH to include Homebrew's bin
+    # This ensures zsh is available in the current session
+    if command_exists brew; then
+        export PATH="$(brew --prefix)/bin:$PATH"
+    fi
+
+    # Install Oh My Zsh
+    install_oh_my_zsh
+
+    # Install Zsh plugins
+    install_zsh_plugins
+
+    # Set Zsh as the default shell
+    set_zsh_as_default
+
+    # Create Zsh directory structure
+    zdot="$HOME/.zsh"
+    if [[ ! -d "$zdot" ]]; then
+        log "INFO" "Creating Zsh directory structure"
+        execute "mkdir -p \"$zdot\"" "Creating directory"
+    fi
+
+    # Configure Zsh plugins in .zshrc
+    configure_zsh_plugins
+
+    # Verify Zsh installation
+    if command_exists zsh; then
+        zsh_version=$(zsh --version)
+        log "INFO" "Zsh installed successfully: $zsh_version"
+    else
+        log "WARN" "Zsh installation could not be verified"
+    fi
+
+    log "SUCCESS" "Zsh setup completed"
+    log "INFO" "Note: You may need to logout and login again for the shell change to take effect"
+
+    brew_prefix=$(brew --prefix 2>/dev/null || echo "")
+    if [[ -n "$brew_prefix" ]]; then
+        log "INFO" "To use zsh immediately, run: $brew_prefix/bin/zsh"
+    else
+        log "INFO" "To use zsh immediately, run: zsh"
+    fi
+
+    return 0
+}
+
+main
+exit $?

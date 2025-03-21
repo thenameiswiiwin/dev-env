@@ -1,0 +1,291 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+if ! source "$script_dir/../utilities" 2>/dev/null; then
+    echo "Failed to source utilities"
+    exit 1
+fi
+
+main() {
+    log "INFO" "Starting Python setup"
+
+    init_homebrew
+
+    log "INFO" "Installing Python"
+    install_package "python" || {
+        log "WARN" "Failed to install Python with Homebrew, trying system package manager"
+
+        if [[ "$OS" == "Linux" ]]; then
+            if command_exists apt; then
+                log "INFO" "Installing Python with apt"
+                execute "sudo apt update && sudo apt install -y python3 python3-pip python3-venv" "Installing Python with apt"
+            elif command_exists pacman; then
+                log "INFO" "Installing Python with pacman"
+                execute "sudo pacman -Sy --noconfirm python python-pip" "Installing Python with pacman"
+            elif command_exists apk; then
+                log "INFO" "Installing Python with apk"
+                execute "sudo apk add --no-cache python3 py3-pip" "Installing Python with apk"
+            elif command_exists dnf; then
+                log "INFO" "Installing Python with dnf"
+                execute "sudo dnf install -y python3 python3-pip" "Installing Python with dnf"
+            else
+                log "ERROR" "No supported package manager found for Python installation"
+            fi
+        else
+            log "ERROR" "Failed to install Python"
+        fi
+    }
+
+    # Install Python tools using Homebrew
+    local packages=(
+        "pipx" # For isolated application installation
+    )
+
+    for package in "${packages[@]}"; do
+        log "INFO" "Installing $package with Homebrew"
+        install_package "$package" || {
+            log "WARN" "Failed to install $package with Homebrew, will try alternative methods later"
+        }
+    done
+
+    # Always create a virtual environment for global Python tools
+    # This is especially important for systems with externally-managed environments
+    venv_dir="$HOME/.python-global-env"
+
+    if [[ ! -d "$venv_dir" ]]; then
+        log "INFO" "Creating a virtual environment for global Python tools"
+        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+            if ! execute "python3 -m venv $venv_dir" "Creating virtual environment"; then
+                log "WARN" "Failed to create virtual environment with venv module, trying with virtualenv"
+
+                # Try to install virtualenv if needed
+                if ! command_exists virtualenv; then
+                    log "INFO" "Installing virtualenv with pip"
+                    execute "python3 -m pip install --user virtualenv --break-system-packages" "Installing virtualenv"
+                fi
+
+                # Try creating environment with virtualenv
+                if command_exists virtualenv; then
+                    execute "virtualenv $venv_dir" "Creating virtual environment with virtualenv"
+                else
+                    log "ERROR" "Could not create Python virtual environment"
+                fi
+            fi
+
+            # Update the PATH in shell profiles
+            update_profile() {
+                local profile_file="$1"
+
+                if [[ -f "$profile_file" ]] && ! grep -q "python-global-env" "$profile_file"; then
+                    log "INFO" "Adding Python virtual environment to PATH in $profile_file"
+
+                    python_venv_config="
+# Python virtual environment path
+export PATH=\"$venv_dir/bin:\$PATH\"
+"
+                    backup_file "$profile_file"
+                    echo "$python_venv_config" >>"$profile_file" || log "WARN" "Failed to update $profile_file"
+                fi
+            }
+
+            update_profile "$HOME/.zprofile"
+            update_profile "$HOME/.bash_profile"
+
+            # Make the venv active in the current shell for further operations
+            if [[ -f "$venv_dir/bin/activate" ]]; then
+                log "INFO" "Activating virtual environment"
+                source "$venv_dir/bin/activate"
+
+                # Upgrade pip within the virtual environment
+                log "INFO" "Upgrading pip in virtual environment"
+                execute "$venv_dir/bin/pip install --upgrade pip" "Upgrading pip in venv"
+
+                # Install essential packages in the virtual environment
+                log "INFO" "Installing essential packages in virtual environment"
+                execute "$venv_dir/bin/pip install wheel setuptools" "Installing wheel and setuptools"
+            fi
+        else
+            log "DRY" "Would create and configure Python virtual environment"
+        fi
+    elif [[ ${DRY_RUN:-0} -eq 0 && -f "$venv_dir/bin/activate" ]]; then
+        log "INFO" "Virtual environment already exists, activating"
+        source "$venv_dir/bin/activate"
+
+        # Update pip in the existing environment
+        log "INFO" "Updating pip in existing virtual environment"
+        execute "$venv_dir/bin/pip install --upgrade pip" "Upgrading pip in venv"
+    fi
+
+    # Set up Python user directory structure
+    python_user_base="$HOME/.local"
+    python_user_bin="$python_user_base/bin"
+
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        log "INFO" "Setting up Python user directory"
+        mkdir -p "$python_user_bin" 2>/dev/null || log "WARN" "Failed to create Python user bin directory"
+    else
+        log "DRY" "Would set up Python user directory"
+    fi
+
+    # Update profile files for Python paths
+    update_python_path() {
+        local profile_file="$1"
+
+        if [[ -f "$profile_file" ]]; then
+            log "INFO" "Updating Python path in $profile_file"
+
+            python_config="
+# Python user bin path
+export PYTHONUSERBASE=\"$HOME/.local\"
+export PATH=\"\$PATH:\$HOME/.local/bin\"
+"
+
+            if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+                if ! grep -q "Python user bin" "$profile_file"; then
+                    backup_file "$profile_file"
+                    echo "$python_config" >>"$profile_file" || log "WARN" "Failed to update $profile_file"
+                else
+                    log "INFO" "Python path already configured in $profile_file"
+                fi
+            else
+                log "DRY" "Would add Python user bin to $profile_file"
+            fi
+        fi
+    }
+
+    update_python_path "$HOME/.zprofile"
+    update_python_path "$HOME/.bash_profile"
+
+    # Install pipx if not already available (and we have a working Python)
+    if ! command_exists pipx && command_exists python3 && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        log "INFO" "Installing pipx using virtual environment"
+        if [[ -f "$venv_dir/bin/pip" ]]; then
+            execute "$venv_dir/bin/pip install pipx" "Installing pipx in virtual environment"
+
+            # Create symlink to make pipx available
+            if [[ -f "$venv_dir/bin/pipx" ]]; then
+                log "INFO" "Creating symlink for pipx"
+                execute "ln -sf \"$venv_dir/bin/pipx\" \"$HOME/.local/bin/pipx\"" "Creating pipx symlink"
+                chmod +x "$HOME/.local/bin/pipx" 2>/dev/null
+            fi
+        fi
+    fi
+
+    # Install common Python tools directly in the virtual environment
+    if [[ -f "$venv_dir/bin/pip" && ${DRY_RUN:-0} -eq 0 ]]; then
+        log "INFO" "Installing Python tools in virtual environment"
+
+        venv_packages=(
+            "black"      # Code formatter
+            "pylint"     # Linter
+            "mypy"       # Type checker
+            "flake8"     # Style guide enforcement
+            "virtualenv" # Virtual environment manager
+        )
+
+        for package in "${venv_packages[@]}"; do
+            log "INFO" "Installing package in venv: $package"
+            execute "$venv_dir/bin/pip install $package" "Installing $package" || log "WARN" "Failed to install $package"
+
+            # Create symlinks in .local/bin
+            if [[ -f "$venv_dir/bin/$package" ]]; then
+                log "INFO" "Creating symlink for $package"
+                execute "ln -sf \"$venv_dir/bin/$package\" \"$HOME/.local/bin/$package\"" "Creating symlink"
+                chmod +x "$HOME/.local/bin/$package" 2>/dev/null
+            fi
+        done
+    elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
+        log "DRY" "Would install Python tools in virtual environment"
+    fi
+
+    # Setup Jupyter in its own dedicated environment
+    log "INFO" "Setting up Jupyter"
+    jupyter_venv="$HOME/.jupyter-env"
+
+    if [[ ! -d "$jupyter_venv" && ${DRY_RUN:-0} -eq 0 ]]; then
+        log "INFO" "Creating a dedicated virtual environment for Jupyter"
+        if execute "python3 -m venv $jupyter_venv" "Creating Jupyter virtual environment"; then
+            execute "$jupyter_venv/bin/pip install --upgrade pip" "Upgrading pip in Jupyter environment"
+            execute "$jupyter_venv/bin/pip install jupyter notebook jupyterlab" "Installing Jupyter in dedicated environment"
+
+            # Create directory for symlinks
+            mkdir -p "$HOME/.local/bin" 2>/dev/null
+
+            # Create symlinks for jupyter executables
+            log "INFO" "Creating symlinks for Jupyter commands"
+            for cmd in "$jupyter_venv/bin/jupyter"*; do
+                if [[ -f "$cmd" && -x "$cmd" ]]; then
+                    cmd_name=$(basename "$cmd")
+                    execute "ln -sf \"$cmd\" \"$HOME/.local/bin/$cmd_name\"" "Creating symlink for $cmd_name"
+                fi
+            done
+
+            log "INFO" "Jupyter installed in dedicated environment"
+        else
+            log "WARN" "Failed to create Jupyter environment"
+        fi
+    elif [[ -d "$jupyter_venv" && ${DRY_RUN:-0} -eq 0 ]]; then
+        log "INFO" "Jupyter environment already exists, updating it"
+        execute "$jupyter_venv/bin/pip install --upgrade jupyter notebook jupyterlab" "Updating Jupyter packages"
+    elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
+        log "DRY" "Would set up Jupyter in dedicated environment"
+    fi
+
+    # Create virtualenvs directory for project isolation
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        log "INFO" "Creating virtualenvs directory"
+        mkdir -p "$HOME/.virtualenvs" 2>/dev/null || log "WARN" "Failed to create virtualenvs directory"
+    else
+        log "DRY" "Would create virtualenvs directory"
+    fi
+
+    # Verify installations
+    log "INFO" "Verifying installations"
+
+    if command_exists python3; then
+        python_version=$(python3 --version)
+        log "SUCCESS" "Python installed successfully: $python_version"
+    else
+        log "WARN" "Python installation could not be verified"
+    fi
+
+    # Check pip in virtual environment first
+    if [[ -f "$venv_dir/bin/pip" ]]; then
+        pip_version=$("$venv_dir/bin/pip" --version)
+        log "SUCCESS" "pip installed in virtual environment: $pip_version"
+    elif command_exists pip3; then
+        pip_version=$(pip3 --version)
+        log "SUCCESS" "pip installed successfully: $pip_version"
+    else
+        log "WARN" "pip installation could not be verified"
+    fi
+
+    if command_exists pipx || [[ -f "$HOME/.local/bin/pipx" ]]; then
+        pipx_version=$("$HOME/.local/bin/pipx" --version 2>/dev/null || pipx --version 2>/dev/null)
+        log "SUCCESS" "pipx installed successfully: $pipx_version"
+    else
+        log "WARN" "pipx installation could not be verified"
+    fi
+
+    # Check for jupyter
+    if [[ -f "$jupyter_venv/bin/jupyter" ]]; then
+        jupyter_version=$("$jupyter_venv/bin/jupyter" --version | head -n 1)
+        log "SUCCESS" "Jupyter installed in dedicated environment: $jupyter_version"
+    elif command_exists jupyter; then
+        jupyter_version=$(jupyter --version | head -n 1)
+        log "SUCCESS" "Jupyter installed successfully: $jupyter_version"
+    else
+        log "WARN" "Jupyter installation could not be verified"
+    fi
+
+    log "SUCCESS" "Python setup completed"
+    log "INFO" "Note: Use the Python virtual environment at $venv_dir for installing packages"
+    log "INFO" "Example: $venv_dir/bin/pip install package-name"
+    log "INFO" "Jupyter is installed at $jupyter_venv and accessible via symlinks in ~/.local/bin"
+    return 0
+}
+
+main
+exit $?

@@ -1,0 +1,22 @@
+gui:
+  theme:
+    default:
+      background: "#1e1e2e"
+      text: "#cdd6f4"
+      selectedText: "#1e1e2e"
+      selectedBackground: "#fab387
+      border: "#fab387"
+      headerBackground: "#1e1e2e"
+      headerText: "#cdd6f4"
+
+    panels:
+      branch:
+        background: "#1e1e2e"
+        text: "#cdd6f4"
+        selectedText: "#1e1e2e"
+        selectedBackground: "#fab387"
+      commit:
+        background: "#1e1e2e"
+        text: "#cdd6f4"
+        selectedText: "#1e1e2e"
+        selectedBackground: "#fab387"

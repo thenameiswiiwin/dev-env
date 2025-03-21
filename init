@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Usage: ./init
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+if ! source "$script_dir/utilities" 2>/dev/null; then
+    echo "Failed to source utilities script"
+    exit 1
+fi
+
+log "INFO" "Initializing git submodules"
+execute "git submodule init" "Initializing git submodules"
+
+log "INFO" "Updating git submodules"
+execute "git submodule update" "Updating git submodules"
+
+log "INFO" "Checking out correct branches for submodules"
+
+# Check and update Neovim config submodule
+if [[ -d "$script_dir/env/.config/nvim" ]]; then
+    log "INFO" "Checking out main branch for Neovim config"
+    execute "cd \"$script_dir/env/.config/nvim\" && git checkout main" "Checking out Neovim config branch"
+else
+    log "WARN" "Neovim config directory not found"
+fi
+
+# Check and update tmux-sessionizer submodule
+if [[ -d "$script_dir/tmux-sessionizer" ]]; then
+    log "INFO" "Checking out main branch for tmux-sessionizer"
+    execute "cd \"$script_dir/tmux-sessionizer\" && git checkout main" "Checking out tmux-sessionizer branch"
+else
+    log "WARN" "tmux-sessionizer directory not found"
+fi
+
+# Check and update docker-env-test submodule if it exists
+if [[ -d "$script_dir/docker-dev-env" ]]; then
+    log "INFO" "Checking out main branch for docker-dev-env"
+    execute "cd \"$script_dir/docker-dev-env\" && git checkout main" "Checking out docker-dev-env branch"
+else
+    log "INFO" "docker-dev-env directory not found, not a critical component"
+fi
+
+log "SUCCESS" "Submodule initialization completed"
+exit 0
