@@ -41,5 +41,14 @@ else
   log "INFO" "docker-dev-env directory not found, not a critical component"
 fi
 
+# Check and update keyboard submodule if it exists
+if [[ -d "$script_dir/resources/keyboard" ]]; then
+  log "INFO" "Checking out main branch for keyboard"
+  execute "cd \"$script_dir/keyboard\" && git checkout main" "Checking out keyboard branch"
+else
+  log "INFO" "keyboard directory not found, not a critical component"
+fi
+
+
 log "SUCCESS" "Submodule initialization completed"
 exit 0
