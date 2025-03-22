@@ -50,7 +50,7 @@ main() {
         execute "$cleanup_cmd" "Cleaning up Composer installer" || {
         log "ERROR" "Failed to install Composer manually"
 
-        # Try installing to the user's local bin directory
+        # Try installing to the local bin directory
         log "INFO" "Trying to install Composer to local bin directory"
         execute "mkdir -p $HOME/.local/bin" "Creating local bin directory"
         install_cmd_local="php composer-setup.php --quiet --install-dir=$HOME/.local/bin --filename=composer"
@@ -98,7 +98,7 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
   }
 
   # Update both Bash and Zsh profiles
-  update_profile "$HOME/.zsh/.zprofile"  # Updated path to match your Zsh configuration structure
+  update_profile "$HOME/.zsh/.zprofile"
   update_profile "$HOME/.bash_profile"
 
   log "INFO" "Installing Laravel installer"
@@ -109,19 +109,40 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
     log "DRY" "Would install Laravel installer"
   fi
 
+  # Configure Composer stability settings for development tools
+  log "INFO" "Configuring Composer stability settings"
+  if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    execute "composer global config minimum-stability dev" "Setting minimum-stability to dev" &&
+    execute "composer global config prefer-stable true" "Setting prefer-stable to true"
+  else
+    log "DRY" "Would configure Composer stability settings"
+  fi
+
   log "INFO" "Installing PHP/Laravel development tools"
   if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
-    # Get PHP version
-    php_version=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
-    
-    if [[ $(echo "$php_version >= 8.0" | bc) -eq 1 ]]; then
-      # For PHP 8.0+, use explicit version constraints
-      execute "composer global require phpactor/phpactor:2025.02.21.0 friendsofphp/php-cs-fixer --with-all-dependencies" "Installing PHP development tools" ||
-        log "WARN" "Failed to install PHP development tools"
-    else
-      # For older PHP versions
-      execute "composer global require phpactor/phpactor friendsofphp/php-cs-fixer" "Installing PHP development tools" ||
-        log "WARN" "Failed to install PHP development tools"
+    # Try installing packages with proper stability settings
+    if ! execute "composer global require phpactor/phpactor friendsofphp/php-cs-fixer" "Installing PHP development tools"; then
+      log "WARN" "First attempt at installing PHP development tools failed, trying individual installations"
+      
+      # Try installing packages individually
+      execute "composer global require friendsofphp/php-cs-fixer" "Installing php-cs-fixer" || 
+        log "WARN" "Failed to install php-cs-fixer"
+      
+      # Try phpactor with a specific stable version
+      if ! execute "composer global require phpactor/phpactor:^2024" "Installing phpactor (stable version)"; then
+        log "WARN" "Failed to install phpactor with standard version, trying alternative method"
+        
+        # Create a temporary directory for manual installation
+        local tmp_dir=$(mktemp -d)
+        log "INFO" "Creating temporary directory for phpactor installation: $tmp_dir"
+        
+        execute "cd $tmp_dir && git clone https://github.com/phpactor/phpactor.git" "Cloning phpactor repository" &&
+        execute "cd $tmp_dir/phpactor && composer install --no-dev" "Installing phpactor dependencies" &&
+        execute "mkdir -p $HOME/.local/bin" "Creating local bin directory" &&
+        execute "ln -sf $tmp_dir/phpactor/bin/phpactor $HOME/.local/bin/phpactor" "Creating phpactor symlink" &&
+        execute "chmod +x $HOME/.local/bin/phpactor" "Making phpactor executable" ||
+        log "WARN" "Failed to install phpactor manually"
+      fi
     fi
   else
     log "DRY" "Would install PHP development tools"
@@ -241,6 +262,19 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
     log "INFO" "Composer installed successfully: $composer_version"
   else
     log "WARN" "Composer installation could not be verified"
+  fi
+
+  # Verify PHP development tools
+  if command_exists phpactor || [[ -f "$HOME/.local/bin/phpactor" ]]; then
+    log "INFO" "phpactor installed successfully"
+  else
+    log "WARN" "phpactor installation could not be verified"
+  fi
+
+  if command_exists php-cs-fixer || [[ -f "$HOME/.composer/vendor/bin/php-cs-fixer" ]]; then
+    log "INFO" "php-cs-fixer installed successfully"
+  else
+    log "WARN" "php-cs-fixer installation could not be verified"
   fi
 
   log "SUCCESS" "PHP setup completed"
