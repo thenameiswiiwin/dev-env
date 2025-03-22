@@ -113,9 +113,9 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
   if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
     execute "composer global require phpactor/phpactor \
             friendsofphp/php-cs-fixer" "Installing PHP/Laravel development tools" ||
-      log "WARN" "Failed to install Laravel installer"
+      log "WARN" "Failed to install PHP development tools"
   else
-    log "DRY" "Would install Laravel installer"
+    log "DRY" "Would install PHP development tools"
   fi
 
   # Configure PHP settings

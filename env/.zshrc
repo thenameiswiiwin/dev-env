@@ -105,9 +105,6 @@ findandkill() {
 # Common aliases
 alias v='nvim'
 alias vim='nvim'
-alias t='tmux'
-alias tmux='tmux -2'
-alias g='git'
 alias ll='ls -lah'
 alias l='ls -lah'
 alias hist='history | grep'
@@ -116,6 +113,7 @@ alias ps='ps aux | grep'
 alias kill_port=findandkill
 alias bu='brew cleanup && brew update && brew upgrade && brew cleanup && brew doctor'
 alias bo='brew outdated'
+alias tmux='command /usr/local/bin/tmux -2'
 
 # OS-specific configurations
 if [[ "$OS" == "Darwin" ]]; then
@@ -155,3 +153,8 @@ fi
 
 # Final PATH adjustments
 export PATH="$HOME/.local/bin:$PATH"
+
+unalias tmux 2>/dev/null
+alias tmux='command /usr/local/bin/tmux -2'
+unalias t 2>/dev/null
+alias t='tmux'
