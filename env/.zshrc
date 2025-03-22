@@ -47,6 +47,9 @@ if command -v brew &>/dev/null; then
     FPATH="$HOME/.docker/completions:$FPATH"
 fi
 
+# Fix insecure directories before compinit runs
+compaudit | xargs chmod -R -L go-w 2>/dev/null || true
+
 # Initialize completions
 autoload -Uz compinit
 compinit -d $ZDOTDIR/.zcompdump
