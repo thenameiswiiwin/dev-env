@@ -16,6 +16,26 @@ install_lua51() {
     return 0
   fi
 
+  # Install dependencies based on OS
+  if [[ "$OS" == "Linux" ]]; then
+    log "INFO" "Installing Lua build dependencies"
+    if command_exists apt; then
+      execute "sudo apt update && sudo apt install -y build-essential libreadline-dev libncurses-dev" "Installing Lua dependencies for Debian/Ubuntu"
+    elif command_exists dnf; then
+      execute "sudo dnf install -y readline-devel ncurses-devel" "Installing Lua dependencies for Fedora/RHEL"
+    elif command_exists pacman; then
+      execute "sudo pacman -Sy --noconfirm readline ncurses" "Installing Lua dependencies for Arch"
+    elif command_exists apk; then
+      execute "sudo apk add --no-cache readline-dev ncurses-dev build-base" "Installing Lua dependencies for Alpine"
+    else
+      log "WARN" "Could not detect package manager to install dependencies"
+      log "WARN" "You may need to manually install readline and ncurses development libraries"
+    fi
+  elif [[ "$OS" == "Darwin" ]]; then
+    log "INFO" "Installing Lua build dependencies for macOS"
+    install_package "readline" || log "WARN" "Failed to install readline, compilation might fail"
+  fi
+
   # Set source and installation paths
   local lua_src_dir="$DEV_ENV/resources/lua-5.1.5"
   local lua_tar="$DEV_ENV/resources/lua-5.1.5.tar.gz"
@@ -75,8 +95,6 @@ install_lua51() {
       # Create symlink
       log "INFO" "Creating Lua 5.1 symlink"
       execute "ln -sf $lua_install_dir/bin/lua $lua_bin_dir/lua5.1" "Creating lua5.1 symlink"
-
-      # Make executable
       execute "chmod +x $lua_bin_dir/lua5.1" "Making lua5.1 executable"
 
       # Return to original directory
