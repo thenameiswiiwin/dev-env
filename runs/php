@@ -111,9 +111,18 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
 
   log "INFO" "Installing PHP/Laravel development tools"
   if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
-    execute "composer global require phpactor/phpactor \
-            friendsofphp/php-cs-fixer" "Installing PHP/Laravel development tools" ||
-      log "WARN" "Failed to install PHP development tools"
+    # Get PHP version
+    php_version=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
+    
+    if [[ $(echo "$php_version >= 8.0" | bc) -eq 1 ]]; then
+      # For PHP 8.0+, use explicit version constraints
+      execute "composer global require phpactor/phpactor:2025.02.21.0 friendsofphp/php-cs-fixer --with-all-dependencies" "Installing PHP development tools" ||
+        log "WARN" "Failed to install PHP development tools"
+    else
+      # For older PHP versions
+      execute "composer global require phpactor/phpactor friendsofphp/php-cs-fixer" "Installing PHP development tools" ||
+        log "WARN" "Failed to install PHP development tools"
+    fi
   else
     log "DRY" "Would install PHP development tools"
   fi
@@ -188,6 +197,7 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
       "/etc/php/8.1/cli/php.ini"
       "/etc/php/8.2/cli/php.ini"
       "/etc/php/8.3/cli/php.ini"
+      "/etc/php/8.4/cli/php.ini"
     )
 
     for php_ini in "${php_ini_paths[@]}"; do
