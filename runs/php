@@ -98,7 +98,7 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
   }
 
   # Update both Bash and Zsh profiles
-  update_profile "$HOME/.zprofile"
+  update_profile "$HOME/.zsh/.zprofile"  # Updated path to match your Zsh configuration structure
   update_profile "$HOME/.bash_profile"
 
   log "INFO" "Installing Laravel installer"
