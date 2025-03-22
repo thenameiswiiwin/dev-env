@@ -31,12 +31,12 @@ COLOR_BLUE="\033[1;34m"
 COLOR_CYAN="\033[1;36m"
 COLOR_RESET="\033[0m"
 
-# Check if system is ARM Linux
-ARCH=$(uname -m)
-OS=$(uname -s)
-IS_ARM_LINUX=0
+# Detect system type with explicit exports (implementing recommendation)
+export OS="$(uname -s)"
+export ARCH="$(uname -m)"
+export IS_ARM_LINUX=0
 if [[ "$ARCH" == "arm"* || "$ARCH" == "aarch64" ]] && [[ "$OS" == "Linux" ]]; then
-    IS_ARM_LINUX=1
+    export IS_ARM_LINUX=1
 fi
 
 log() {
@@ -89,11 +89,6 @@ init_homebrew() {
     return 0
   fi
 
-  local OS
-  OS="$(uname -s)"
-  local ARCH
-  ARCH="$(uname -m)"
-
   if [[ "$OS" == "Darwin" ]]; then
     if [[ "$ARCH" == "arm64" ]] && [[ -f /opt/homebrew/bin/brew ]]; then
       eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -115,12 +110,10 @@ ensure_homebrew_in_path() {
     return 0
   fi
 
-  local OS
-  OS="$(uname -s)"
   local brew_bin=""
 
   if [[ "$OS" == "Darwin" ]]; then
-    if [[ "$(uname -m)" == "arm64" ]] && [[ -f /opt/homebrew/bin/brew ]]; then
+    if [[ "$ARCH" == "arm64" ]] && [[ -f /opt/homebrew/bin/brew ]]; then
       brew_bin="/opt/homebrew/bin"
     elif [[ -f /usr/local/bin/brew ]]; then
       brew_bin="/usr/local/bin"
@@ -153,7 +146,7 @@ install_homebrew() {
       log "INFO" "Trying alternative installation method..."
 
       # For Linux systems that might need dependencies
-      if [[ "$(uname -s)" == "Linux" ]]; then
+      if [[ "$OS" == "Linux" ]]; then
         log "INFO" "Installing dependencies for Homebrew..."
 
         if command_exists apt; then
@@ -207,11 +200,6 @@ install_core_packages_arm_linux() {
 }
 
 setup() {
-  local OS
-  OS="$(uname -s)"
-  local ARCH
-  ARCH="$(uname -m)"
-
   log "INFO" "Detected $OS system on $ARCH architecture"
 
   if [[ "$OS" != "Darwin" && "$OS" != "Linux" ]]; then
