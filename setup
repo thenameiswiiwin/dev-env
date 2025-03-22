@@ -31,6 +31,14 @@ COLOR_BLUE="\033[1;34m"
 COLOR_CYAN="\033[1;36m"
 COLOR_RESET="\033[0m"
 
+# Check if system is ARM Linux
+ARCH=$(uname -m)
+OS=$(uname -s)
+IS_ARM_LINUX=0
+if [[ "$ARCH" == "arm"* || "$ARCH" == "aarch64" ]] && [[ "$OS" == "Linux" ]]; then
+    IS_ARM_LINUX=1
+fi
+
 log() {
   local level="$1"
   local message="$2"
@@ -75,6 +83,12 @@ execute() {
 }
 
 init_homebrew() {
+  # Skip Homebrew on ARM Linux
+  if [[ $IS_ARM_LINUX -eq 1 ]]; then
+    log "INFO" "Skipping Homebrew initialization on ARM Linux"
+    return 0
+  fi
+
   local OS
   OS="$(uname -s)"
   local ARCH
@@ -96,6 +110,11 @@ init_homebrew() {
 }
 
 ensure_homebrew_in_path() {
+  # Skip for ARM Linux
+  if [[ $IS_ARM_LINUX -eq 1 ]]; then
+    return 0
+  fi
+
   local OS
   OS="$(uname -s)"
   local brew_bin=""
@@ -121,6 +140,12 @@ ensure_homebrew_in_path() {
 }
 
 install_homebrew() {
+  # Skip for ARM Linux
+  if [[ $IS_ARM_LINUX -eq 1 ]]; then
+    log "INFO" "Skipping Homebrew installation on ARM Linux"
+    return 0
+  fi
+
   log "INFO" "Installing Homebrew..."
   if [[ $dry_run -eq 0 ]]; then
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || {
@@ -153,6 +178,34 @@ install_homebrew() {
   return 0
 }
 
+install_core_packages_arm_linux() {
+  log "INFO" "Installing core packages for ARM Linux with system package manager"
+  
+  # Detect package manager
+  if command_exists apt; then
+    log "INFO" "Using apt package manager"
+    execute "sudo apt update" "Updating apt package lists"
+    execute "sudo apt install -y git curl build-essential python3 python3-pip zsh tmux" "Installing core packages with apt"
+  elif command_exists pacman; then
+    log "INFO" "Using pacman package manager"
+    execute "sudo pacman -Sy --noconfirm git curl base-devel python python-pip zsh tmux" "Installing core packages with pacman"
+  elif command_exists dnf; then
+    log "INFO" "Using dnf package manager"
+    execute "sudo dnf install -y git curl make gcc python3 python3-pip zsh tmux" "Installing core packages with dnf"
+  elif command_exists yum; then
+    log "INFO" "Using yum package manager"
+    execute "sudo yum install -y git curl make gcc python3 python3-pip zsh tmux" "Installing core packages with yum"
+  elif command_exists apk; then
+    log "INFO" "Using apk package manager"
+    execute "sudo apk add --no-cache git curl build-base python3 py3-pip zsh tmux" "Installing core packages with apk"
+  else
+    log "ERROR" "No supported package manager found"
+    return 1
+  fi
+  
+  return 0
+}
+
 setup() {
   local OS
   OS="$(uname -s)"
@@ -169,19 +222,24 @@ setup() {
   export HOMEBREW_NO_ENV_HINTS=1
   export HOMEBREW_NO_INSTALL_CLEANUP=1
 
-  if ! command_exists brew; then
-    install_homebrew
-    init_homebrew
+  if [[ $IS_ARM_LINUX -eq 1 ]]; then
+    log "INFO" "ARM Linux detected, using system package managers instead of Homebrew"
+    install_core_packages_arm_linux
   else
-    log "INFO" "Homebrew is already installed"
-    init_homebrew
-  fi
+    if ! command_exists brew; then
+      install_homebrew
+      init_homebrew
+    else
+      log "INFO" "Homebrew is already installed"
+      init_homebrew
+    fi
 
-  ensure_homebrew_in_path
+    ensure_homebrew_in_path
+  fi
 
   log "INFO" "Checking for potential package conflicts"
 
-  if command_exists brew; then
+  if command_exists brew && [[ $IS_ARM_LINUX -eq 0 ]]; then
     if [[ $dry_run -eq 0 ]]; then
       brew analytics off 2>/dev/null || log "WARN" "Failed to disable Homebrew analytics"
     else
@@ -192,31 +250,15 @@ setup() {
   if ! command_exists git; then
     log "INFO" "Installing Git..."
     if [[ $dry_run -eq 0 ]]; then
-      brew install git || {
-        log "ERROR" "Failed to install Git with Homebrew"
-
-        # Fallback to system package manager
-        if [[ "$OS" == "Linux" ]]; then
-          log "INFO" "Trying to install Git with system package manager..."
-
-          if command_exists apt; then
-            execute "sudo apt update && sudo apt install -y git" "Installing Git with apt"
-          elif command_exists pacman; then
-            execute "sudo pacman -Sy --noconfirm git" "Installing Git with pacman"
-          elif command_exists apk; then
-            execute "sudo apk add --no-cache git" "Installing Git with apk"
-          elif command_exists dnf; then
-            execute "sudo dnf install -y git" "Installing Git with dnf"
-          elif command_exists yum; then
-            execute "sudo yum install -y git" "Installing Git with yum"
-          else
-            log "ERROR" "No supported package manager found"
-            exit 1
-          fi
-        else
-          exit 1
-        fi
-      }
+      if [[ $IS_ARM_LINUX -eq 0 ]] && command_exists brew; then
+        brew install git || {
+          log "ERROR" "Failed to install Git with Homebrew"
+          # Fall back to system package manager
+          install_git_with_system_package_manager
+        }
+      else
+        install_git_with_system_package_manager
+      fi
     fi
   else
     log "INFO" "Git is already installed"
@@ -268,18 +310,32 @@ setup() {
   echo "-----------------------------------------------------"
   echo ""
 
-  brew_path=$(brew --prefix 2>/dev/null)
-  if [[ -n "$brew_path" && -f "$brew_path/bin/zsh" ]]; then
-    echo "To change your default shell to Zsh, run:"
-    echo "  chsh -s $brew_path/bin/zsh"
+  # Provide guidance based on system type
+  if [[ $IS_ARM_LINUX -eq 1 ]]; then
+    echo "ARM Linux system detected: Using system package managers instead of Homebrew"
     echo ""
-    echo "To start using Zsh immediately without logging out, run:"
-    echo "  $brew_path/bin/zsh"
-    echo ""
-  elif command_exists zsh; then
-    echo "To change your default shell to Zsh, run:"
-    echo "  chsh -s $(command -v zsh)"
-    echo ""
+    if command_exists zsh; then
+      echo "To change your default shell to Zsh, run:"
+      echo "  chsh -s $(command -v zsh)"
+      echo ""
+      echo "To start using Zsh immediately without logging out, run:"
+      echo "  $(command -v zsh)"
+      echo ""
+    fi
+  else
+    brew_path=$(brew --prefix 2>/dev/null)
+    if [[ -n "$brew_path" && -f "$brew_path/bin/zsh" ]]; then
+      echo "To change your default shell to Zsh, run:"
+      echo "  chsh -s $brew_path/bin/zsh"
+      echo ""
+      echo "To start using Zsh immediately without logging out, run:"
+      echo "  $brew_path/bin/zsh"
+      echo ""
+    elif command_exists zsh; then
+      echo "To change your default shell to Zsh, run:"
+      echo "  chsh -s $(command -v zsh)"
+      echo ""
+    fi
   fi
 
   echo "You may want to restart your terminal for all changes to take effect."
@@ -287,6 +343,26 @@ setup() {
   echo "To update your environment in the future, run:"
   echo "  cd $DEV_ENV && ./update"
   echo ""
+}
+
+# Helper function to install Git with system package manager
+install_git_with_system_package_manager() {
+  log "INFO" "Trying to install Git with system package manager..."
+
+  if command_exists apt; then
+    execute "sudo apt update && sudo apt install -y git" "Installing Git with apt"
+  elif command_exists pacman; then
+    execute "sudo pacman -Sy --noconfirm git" "Installing Git with pacman"
+  elif command_exists apk; then
+    execute "sudo apk add --no-cache git" "Installing Git with apk"
+  elif command_exists dnf; then
+    execute "sudo dnf install -y git" "Installing Git with dnf"
+  elif command_exists yum; then
+    execute "sudo yum install -y git" "Installing Git with yum"
+  else
+    log "ERROR" "No supported package manager found"
+    exit 1
+  fi
 }
 
 setup

@@ -11,6 +11,7 @@ fi
 main() {
   log "INFO" "Starting libs setup"
 
+  # Initialize either Homebrew or set ARM Linux flag
   init_homebrew
 
   # Core utilities to install
@@ -40,14 +41,14 @@ main() {
   for package in "${packages[@]}"; do
     log "INFO" "Installing $package"
     install_package "$package" || {
-      log "WARN" "Failed to install $package with Homebrew, trying system package manager"
-      install_with_system_package_manager "$package" || log "ERROR" "Failed to install $package"
+      log "WARN" "Failed to install $package with package manager"
     }
   done
 
   # Verify installations
   log "INFO" "Verifying installations"
   for package in "${packages[@]}"; do
+    # Use a more flexible check for packages on ARM Linux
     if command_exists "$package" || brew_installed "$package"; then
       log "INFO" "$package is installed"
     else
@@ -55,26 +56,45 @@ main() {
     fi
   done
 
-  # Configure fzf
-  if brew_installed "fzf" || command_exists fzf; then
+  # Configure fzf - adjust for ARM Linux
+  if command_exists fzf; then
     log "INFO" "Setting up fzf key bindings and completion"
-    local fzf_base
 
-    if brew_installed "fzf"; then
-      fzf_base="$(brew --prefix)/opt/fzf"
-    elif [[ -d "$HOME/.fzf" ]]; then
-      fzf_base="$HOME/.fzf"
-    fi
-
-    if [[ -n "${fzf_base:-}" ]]; then
-      if [[ -f "$fzf_base/install" ]]; then
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-          "$fzf_base/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
-        else
-          log "DRY" "Would install fzf key bindings and completion"
-        fi
+    if [[ "$IS_ARM" -eq 1 && "$OS" == "Linux" ]]; then
+      # For ARM Linux, check if fzf completion files are in standard locations
+      if [[ -f "/usr/share/fzf/key-bindings.bash" ]]; then
+        log "INFO" "Found fzf key bindings in system location"
       else
-        log "WARN" "fzf install script not found"
+        log "INFO" "Installing fzf completion files from GitHub"
+        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+          mkdir -p ~/.fzf
+          curl -fLo ~/.fzf/key-bindings.bash https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.bash
+          curl -fLo ~/.fzf/completion.bash https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.bash
+          curl -fLo ~/.fzf/key-bindings.zsh https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.zsh
+          curl -fLo ~/.fzf/completion.zsh https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.zsh
+        else
+          log "DRY" "Would download fzf completion files from GitHub"
+        fi
+      fi
+    else
+      # For non-ARM systems, use Homebrew's fzf setup
+      local fzf_base
+      if brew_installed "fzf"; then
+        fzf_base="$(brew --prefix)/opt/fzf"
+      elif [[ -d "$HOME/.fzf" ]]; then
+        fzf_base="$HOME/.fzf"
+      fi
+
+      if [[ -n "${fzf_base:-}" ]]; then
+        if [[ -f "$fzf_base/install" ]]; then
+          if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+            "$fzf_base/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
+          else
+            log "DRY" "Would install fzf key bindings and completion"
+          fi
+        else
+          log "WARN" "fzf install script not found"
+        fi
       fi
     fi
   fi
