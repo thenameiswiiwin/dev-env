@@ -20,6 +20,14 @@ ZSH_THEME_GIT_PROMPT_SUFFIX=")"
 ZSH_THEME_GIT_PROMPT_DIRTY="*"
 ZSH_THEME_GIT_PROMPT_CLEAN=""
 
+autoload -Uz compaudit
+if compaudit &>/dev/null; then
+  for dir in $(compaudit); do
+    echo "Fixing insecure directory permissions: $dir"
+    chmod go-w "$dir" 2>/dev/null || sudo chmod go-w "$dir" 2>/dev/null
+  done
+fi
+
 # Load Oh My Zsh
 source $ZSH/oh-my-zsh.sh
 
@@ -47,13 +55,10 @@ if command -v brew &>/dev/null; then
     FPATH="$HOME/.docker/completions:$FPATH"
 fi
 
-# Fix insecure directories before compinit runs
-compaudit | xargs chmod -R -L go-w 2>/dev/null || true
-
-# Initialize completions
+# Initialize completions - only do this ONCE with proper flags
+# Remove the duplicate compinit call and use -i to ignore insecure directories
 autoload -Uz compinit
-compinit -d $ZDOTDIR/.zcompdump
-compinit -u
+compinit -i -d "$ZDOTDIR/.zcompdump"
 
 # Configure Zsh completion
 zstyle ':completion:*' menu select
@@ -116,7 +121,6 @@ alias ps='ps aux | grep'
 alias kill_port=findandkill
 alias bu='brew cleanup && brew update && brew upgrade && brew cleanup && brew doctor'
 alias bo='brew outdated'
-alias tmux='command /usr/local/bin/tmux -2'
 
 # OS-specific configurations
 if [[ "$OS" == "Darwin" ]]; then
@@ -157,7 +161,19 @@ fi
 # Final PATH adjustments
 export PATH="$HOME/.local/bin:$PATH"
 
-unalias tmux 2>/dev/null
-alias tmux='command /usr/local/bin/tmux -2'
-unalias t 2>/dev/null
-alias t='tmux'
+# Handle tmux alias properly by checking if the path exists first
+if [[ -f "/usr/local/bin/tmux" ]]; then
+    unalias tmux 2>/dev/null
+    alias tmux='command /usr/local/bin/tmux -2'
+    unalias t 2>/dev/null
+    alias t='tmux'
+else
+    # Find tmux in PATH if it exists
+    if command -v tmux &>/dev/null; then
+        tmux_path=$(command -v tmux)
+        unalias tmux 2>/dev/null
+        alias tmux="command $tmux_path -2"
+        unalias t 2>/dev/null
+        alias t='tmux'
+    fi
+fi
