@@ -154,6 +154,7 @@ main() {
   local packages=(
     "lazygit"  # Git UI
     "luacheck" # Lua static analyzer
+    "luarocks"
   )
 
   for package in "${packages[@]}"; do
