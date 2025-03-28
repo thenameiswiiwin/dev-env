@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Development environment setup
 
 set -euo pipefail
 
@@ -8,7 +9,7 @@ if ! source "$script_dir/../utilities" 2>/dev/null; then
   exit 1
 fi
 
-# Function to install Lua 5.1.5
+# Function to install Lua 5.1.5 with architecture awareness
 install_lua51() {
   # Check if lua5.1 is already installed
   if command_exists lua5.1; then
@@ -16,11 +17,18 @@ install_lua51() {
     return 0
   fi
 
-  # Install dependencies based on OS
-  if [[ "$OS" == "Linux" ]]; then
+  # Install dependencies based on OS and architecture
+  if [[ "$OS" = "Linux" ]]; then
     log "INFO" "Installing Lua build dependencies"
+
+    # Architecture-specific dependencies if needed
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      log "INFO" "Installing ARM-specific Lua dependencies"
+    fi
+
+    # System-specific dependencies
     if command_exists apt; then
-      execute "sudo apt update && sudo apt install -y build-essential libreadline-dev libncurses-dev" "Installing Lua dependencies for Debian/Ubuntu"
+      execute "sudo apt-get update && sudo apt-get install -y build-essential libreadline-dev libncurses-dev" "Installing Lua dependencies for Debian/Ubuntu"
     elif command_exists dnf; then
       execute "sudo dnf install -y readline-devel ncurses-devel" "Installing Lua dependencies for Fedora/RHEL"
     elif command_exists pacman; then
@@ -31,7 +39,7 @@ install_lua51() {
       log "WARN" "Could not detect package manager to install dependencies"
       log "WARN" "You may need to manually install readline and ncurses development libraries"
     fi
-  elif [[ "$OS" == "Darwin" ]]; then
+  elif [[ "$OS" = "Darwin" ]]; then
     log "INFO" "Installing Lua build dependencies for macOS"
     install_package "readline" || log "WARN" "Failed to install readline, compilation might fail"
   fi
@@ -63,28 +71,42 @@ install_lua51() {
   if [[ -f "$lua_tar" && ! -d "$lua_src_dir" ]]; then
     log "INFO" "Extracting Lua 5.1.5 source"
     if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-      execute "tar -xzf $lua_tar -C $(dirname $lua_src_dir)" "Extracting Lua 5.1.5"
+      execute "mkdir -p $(dirname "$lua_src_dir")" "Creating resources directory"
+      execute "tar -xzf $lua_tar -C $(dirname "$lua_src_dir")" "Extracting Lua 5.1.5"
     else
       log "DRY" "Would extract Lua 5.1.5 source"
     fi
   fi
 
-  # Build and install Lua 5.1.5
+  # Build and install Lua 5.1.5 with architecture awareness
   if [[ -d "$lua_src_dir" ]]; then
     log "INFO" "Building Lua 5.1.5"
     if [[ ${DRY_RUN:-0} -eq 0 ]]; then
       cd "$lua_src_dir"
 
-      # Use different make target based on OS
-      if [[ "$OS" == "Darwin" ]]; then
-        log "INFO" "Building for macOS"
-        execute "make macosx" "Building Lua 5.1.5 for macOS"
-      elif [[ "$OS" == "Linux" ]]; then
-        log "INFO" "Building for Linux"
-        execute "make linux" "Building Lua 5.1.5 for Linux"
+      # Architecture-specific builds
+      if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+        log "INFO" "Building for ARM architecture"
+        # Apply ARM-specific patches if needed
+
+        # Use appropriate make target
+        if [[ "$OS" = "Darwin" ]]; then
+          # macOS ARM (Apple Silicon)
+          execute "make macosx MYCFLAGS=-mmacosx-version-min=11.0" "Building Lua 5.1.5 for macOS ARM"
+        else
+          # Linux ARM
+          execute "make linux MYCFLAGS=-fPIC" "Building Lua 5.1.5 for Linux ARM"
+        fi
       else
-        log "ERROR" "Unsupported OS: $OS"
-        return 1
+        # Standard x86_64 build
+        if [[ "$OS" = "Darwin" ]]; then
+          execute "make macosx" "Building Lua 5.1.5 for macOS"
+        elif [[ "$OS" = "Linux" ]]; then
+          execute "make linux" "Building Lua 5.1.5 for Linux"
+        else
+          log "ERROR" "Unsupported OS: $OS"
+          return 1
+        fi
       fi
 
       # Create installation directory
@@ -157,15 +179,22 @@ main() {
     "luarocks"
   )
 
+  # Install packages with architecture awareness
   for package in "${packages[@]}"; do
     log "INFO" "Installing $package"
+    # Handle ARM-specific installation if needed
+    if [[ "$IS_ARM_CPU" -eq 1 ]] && [[ "$package" = "luarocks" || "$package" = "luacheck" ]]; then
+      log "INFO" "Installing $package for ARM architecture"
+    fi
+
     install_package "$package" || log "WARN" "Failed to install $package"
   done
 
-  # Install Lua 5.1.5 from resources or download if needed
+  # Install Lua 5.1.5 with architecture awareness
   log "INFO" "Installing Lua 5.1.5 for Neovim compatibility"
   install_lua51
 
+  # Verify installations
   log "INFO" "Verifying installations"
   for package in "${packages[@]}"; do
     if command_exists "$package" || brew_installed "$package"; then

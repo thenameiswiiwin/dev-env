@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Go programming language setup with cross-platform compatibility
 
 set -euo pipefail
 
@@ -13,31 +14,37 @@ main() {
 
   init_homebrew
 
-  log "INFO" "Installing Go programming language"
-  install_package "go" || {
+  log "INFO" "Installing Go programming language with architecture awareness"
+  if ! install_package "go"; then
     log "WARN" "Failed to install Go with Homebrew, trying alternatives"
 
     if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-      # Alternative installation method
+      # Alternative installation method with architecture awareness
       log "INFO" "Trying official Go installer"
       local go_version="1.22.0" # Update to latest stable
       local arch="amd64"
 
-      if [[ "$ARCH" == "arm64" ]]; then
+      # Detect ARM architecture
+      if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
         arch="arm64"
+        log "INFO" "Detected ARM architecture, installing arm64 version"
       fi
 
-      local os_name="${OS,,}"
-      # Fix for case-sensitivity in Darwin vs darwin
-      if [[ "$os_name" == "darwin" ]]; then
+      # OS-specific naming
+      local os_name=""
+      if [[ "$OS" == "Darwin" ]]; then
         os_name="darwin"
-      elif [[ "$os_name" == "linux" ]]; then
+      elif [[ "$OS" == "Linux" ]]; then
         os_name="linux"
+      else
+        log "ERROR" "Unsupported OS: $OS"
+        return 1
       fi
 
       local go_package="go${go_version}.${os_name}-${arch}.tar.gz"
       local download_url="https://go.dev/dl/${go_package}"
 
+      log "INFO" "Downloading Go ${go_version} for ${os_name}-${arch}"
       execute "curl -fsSL ${download_url} -o /tmp/${go_package}" "Downloading Go"
       execute "sudo rm -rf /usr/local/go" "Removing any existing Go installation"
       execute "sudo tar -C /usr/local -xzf /tmp/${go_package}" "Extracting Go to /usr/local"
@@ -46,25 +53,31 @@ main() {
       # Add to PATH if not already there
       if [[ ":$PATH:" != *":/usr/local/go/bin:"* ]]; then
         log "INFO" "Adding Go to PATH"
-        execute "mkdir -p /etc/profile.d" "Creating profile.d directory if needed"
+        execute "sudo mkdir -p /etc/profile.d" "Creating profile.d directory if needed"
         execute "echo 'export PATH=\$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh" "Creating Go path file"
-        execute "chmod +x /etc/profile.d/go.sh" "Making Go path file executable"
+        execute "sudo chmod +x /etc/profile.d/go.sh" "Making Go path file executable"
         export PATH="$PATH:/usr/local/go/bin"
       fi
     else
       log "DRY" "Would install Go using the official installer"
     fi
-  }
+  fi
 
-  # Determine Go directories
+  # Determine Go directories with architecture awareness
   if command_exists go; then
     go_root=$(go env GOROOT 2>/dev/null || echo "/usr/local/go")
     go_path=$(go env GOPATH 2>/dev/null || echo "$HOME/go")
+
+    # Check architecture-specific directories
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      log "INFO" "Verifying ARM-specific Go directories"
+    fi
   else
     go_root="/usr/local/go"
     go_path="$HOME/go"
   fi
 
+  # Create Go directories
   if [[ ${DRY_RUN:-0} -eq 0 ]]; then
     log "INFO" "Creating Go directories"
     mkdir -p "$go_path/bin" "$go_path/src" "$go_path/pkg" 2>/dev/null || log "WARN" "Failed to create Go directories"
@@ -79,12 +92,21 @@ main() {
     if [[ -f "$profile_file" ]]; then
       log "INFO" "Updating Go environment in $profile_file"
 
+      # Create Go environment configuration with architecture awareness
       go_config="
 # Go environment
 export GOROOT=$(command -v go >/dev/null 2>&1 && go env GOROOT 2>/dev/null || echo '/usr/local/go')
 export GOPATH=${go_path}
 export PATH=\"\$PATH:\$GOPATH/bin:/usr/local/go/bin\"
 "
+
+      # ARM-specific settings if needed
+      if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+        go_config+="
+# ARM-specific Go settings
+export GOARCH=$arch
+"
+      fi
 
       if [[ ${DRY_RUN:-0} -eq 0 ]]; then
         if ! grep -q "Go environment" "$profile_file"; then
@@ -106,16 +128,32 @@ export PATH=\"\$PATH:\$GOPATH/bin:/usr/local/go/bin\"
   # Add Go bin to current PATH
   export PATH="$PATH:$go_path/bin:/usr/local/go/bin"
 
-  # Install common Go tools
+  # Install common Go tools with architecture awareness
   if command_exists go && [[ ${DRY_RUN:-0} -eq 0 ]]; then
     log "INFO" "Installing common Go tools"
+
+    # Tool list with important language servers and dev tools
     go_tools=(
       "golang.org/x/tools/gopls@latest"          # Go language server
       "github.com/go-delve/delve/cmd/dlv@latest" # Go debugger
       "golang.org/x/lint/golint@latest"          # Go linter
       "github.com/fatih/gomodifytags@latest"     # Go struct tag modifier
       "github.com/cweill/gotests/...@latest"     # Go test generator
+      "github.com/josharian/impl@latest"         # Go interface implementation generator
+      "mvdan.cc/gofumpt@latest"                  # Stricter Go formatter
     )
+
+    # Architecture-specific tools
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      log "INFO" "Adding ARM-optimized Go tools"
+      go_tools+=(
+        "github.com/x-motemen/gore/cmd/gore@latest" # Go REPL optimized for ARM
+      )
+    else
+      go_tools+=(
+        "github.com/x-motemen/gore/cmd/gore@latest" # Standard Go REPL
+      )
+    fi
 
     for tool in "${go_tools[@]}"; do
       tool_name=$(basename "${tool%@*}")
@@ -126,9 +164,19 @@ export PATH=\"\$PATH:\$GOPATH/bin:/usr/local/go/bin\"
     log "DRY" "Would install common Go tools"
   fi
 
+  # Verify Go installation
   if command_exists go; then
     go_version=$(go version)
     log "INFO" "Go installed successfully: $go_version"
+
+    # Verify architecture match
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      if go version | grep -q "arm64"; then
+        log "SUCCESS" "Go architecture correctly matched to ARM64"
+      else
+        log "WARN" "Go architecture mismatch - expected arm64"
+      fi
+    fi
   else
     log "WARN" "Go installation could not be verified"
   fi

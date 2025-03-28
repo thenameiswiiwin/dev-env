@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# PHP environment setup
 
 set -euo pipefail
 
@@ -13,14 +14,14 @@ main() {
 
   init_homebrew
 
-  log "INFO" "Installing PHP"
-  install_package "php" || {
+  log "INFO" "Installing PHP with architecture awareness"
+  if ! install_package "php"; then
     log "WARN" "Failed to install PHP with Homebrew, trying system package manager"
 
-    if [[ "$OS" == "Linux" ]]; then
+    if [[ "$OS" = "Linux" ]]; then
       if command_exists apt; then
         log "INFO" "Installing PHP with apt"
-        execute "sudo apt update && sudo apt install -y php php-cli php-fpm php-json php-common php-mysql php-zip php-gd php-mbstring php-curl php-xml php-pear php-bcmath" "Installing PHP with apt"
+        execute "sudo apt-get update && sudo apt-get install -y php php-cli php-fpm php-json php-common php-mysql php-zip php-gd php-mbstring php-curl php-xml php-pear php-bcmath" "Installing PHP with apt"
       elif command_exists pacman; then
         log "INFO" "Installing PHP with pacman"
         execute "sudo pacman -Sy --noconfirm php php-fpm" "Installing PHP with pacman"
@@ -33,14 +34,21 @@ main() {
     else
       log "ERROR" "Failed to install PHP"
     fi
-  }
+  fi
 
-  log "INFO" "Installing Composer"
-  install_package "composer" || {
+  log "INFO" "Installing Composer with architecture awareness"
+  if ! install_package "composer"; then
     log "WARN" "Homebrew installation of Composer failed, trying alternative method"
 
     if [[ ${DRY_RUN:-0} -eq 0 ]]; then
       log "INFO" "Downloading Composer installer"
+
+      # ARM-specific installation if needed
+      if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+        log "INFO" "Installing Composer on ARM architecture"
+      fi
+
+      # Download and install Composer
       php_cmd="php -r \"copy('https://getcomposer.org/installer', 'composer-setup.php');\""
       install_cmd="php composer-setup.php --quiet --install-dir=/usr/local/bin --filename=composer"
       cleanup_cmd="php -r \"unlink('composer-setup.php');\""
@@ -60,8 +68,9 @@ main() {
     else
       log "DRY" "Would install Composer manually"
     fi
-  }
+  fi
 
+  # Set up Composer directories
   composer_dir="$HOME/.composer"
   composer_bin="$composer_dir/vendor/bin"
 
@@ -101,8 +110,13 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
   update_profile "$HOME/.zsh/.zprofile"
   update_profile "$HOME/.bash_profile"
 
+  # Install Laravel installer with architecture awareness
   log "INFO" "Installing Laravel installer"
   if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      log "INFO" "Installing Laravel installer on ARM architecture"
+    fi
+
     execute "composer global require laravel/installer" "Installing Laravel installer" ||
       log "WARN" "Failed to install Laravel installer"
   else
@@ -113,141 +127,50 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
   log "INFO" "Configuring Composer stability settings"
   if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
     execute "composer global config minimum-stability dev" "Setting minimum-stability to dev" &&
-    execute "composer global config prefer-stable true" "Setting prefer-stable to true"
+      execute "composer global config prefer-stable true" "Setting prefer-stable to true"
   else
     log "DRY" "Would configure Composer stability settings"
   fi
 
+  # Install PHP/Laravel development tools with architecture awareness
   log "INFO" "Installing PHP/Laravel development tools"
   if command_exists composer && [[ ${DRY_RUN:-0} -eq 0 ]]; then
     # Try installing packages with proper stability settings
     if ! execute "composer global require phpactor/phpactor friendsofphp/php-cs-fixer" "Installing PHP development tools"; then
       log "WARN" "First attempt at installing PHP development tools failed, trying individual installations"
-      
+
       # Try installing packages individually
-      execute "composer global require friendsofphp/php-cs-fixer" "Installing php-cs-fixer" || 
+      execute "composer global require friendsofphp/php-cs-fixer" "Installing php-cs-fixer" ||
         log "WARN" "Failed to install php-cs-fixer"
-      
-      # Try phpactor with a specific stable version
-      if ! execute "composer global require phpactor/phpactor:^2024" "Installing phpactor (stable version)"; then
-        log "WARN" "Failed to install phpactor with standard version, trying alternative method"
-        
-        # Create a temporary directory for manual installation
-        local tmp_dir=$(mktemp -d)
-        log "INFO" "Creating temporary directory for phpactor installation: $tmp_dir"
-        
-        execute "cd $tmp_dir && git clone https://github.com/phpactor/phpactor.git" "Cloning phpactor repository" &&
-        execute "cd $tmp_dir/phpactor && composer install --no-dev" "Installing phpactor dependencies" &&
-        execute "mkdir -p $HOME/.local/bin" "Creating local bin directory" &&
-        execute "ln -sf $tmp_dir/phpactor/bin/phpactor $HOME/.local/bin/phpactor" "Creating phpactor symlink" &&
-        execute "chmod +x $HOME/.local/bin/phpactor" "Making phpactor executable" ||
-        log "WARN" "Failed to install phpactor manually"
+
+      # Try phpactor with a specific stable version - especially important for ARM
+      if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+        log "INFO" "Installing phpactor with ARM-compatible version"
+        # Try a version that works on ARM
+        if ! execute "composer global require phpactor/phpactor:^2024" "Installing phpactor (ARM version)"; then
+          install_phpactor_manually
+        fi
+      else
+        # Standard x86 installation
+        if ! execute "composer global require phpactor/phpactor:^2024" "Installing phpactor (stable version)"; then
+          install_phpactor_manually
+        fi
       fi
     fi
   else
     log "DRY" "Would install PHP development tools"
   fi
 
-  # Configure PHP settings
-  if [[ "$OS" == "Darwin" ]]; then
-    php_ini_dirs=(
-      "/usr/local/etc/php/8.4"
-      "/usr/local/etc/php/8.3"
-      "/usr/local/etc/php/8.2"
-      "/usr/local/etc/php/8.1"
-      "/usr/local/etc/php/8.0"
-      "/usr/local/etc/php/7.4"
-      "/opt/homebrew/etc/php/8.4"
-      "/opt/homebrew/etc/php/8.3"
-      "/opt/homebrew/etc/php/8.2"
-      "/opt/homebrew/etc/php/8.1"
-    )
-
-    php_ini_dir=""
-    for dir in "${php_ini_dirs[@]}"; do
-      if [[ -d "$dir" ]]; then
-        php_ini_dir="$dir"
-        break
-      fi
-    done
-
-    if [[ -n "$php_ini_dir" ]]; then
-      log "INFO" "Configuring PHP settings in $php_ini_dir"
-
-      local php_ini="$php_ini_dir/php.ini"
-      if [[ ! -f "$php_ini" ]] && [[ -f "$php_ini_dir/php.ini-development" ]]; then
-        log "INFO" "Creating PHP ini from development template"
-        execute "cp \"$php_ini_dir/php.ini-development\" \"$php_ini\"" "Creating PHP ini" ||
-          log "WARN" "Failed to create PHP ini"
-      fi
-
-      if [[ -f "$php_ini" ]] && [[ ${DRY_RUN:-0} -eq 0 ]]; then
-        backup_file "$php_ini"
-
-        log "INFO" "Setting development values in PHP ini"
-        php_settings=(
-          "memory_limit = 512M"
-          "upload_max_filesize = 100M"
-          "post_max_size = 100M"
-          "max_execution_time = 300"
-          "date.timezone = UTC"
-        )
-
-        for setting in "${php_settings[@]}"; do
-          setting_name="${setting%%=*}"
-          setting_name="${setting_name// /}"
-
-          if grep -q "^$setting_name" "$php_ini"; then
-            execute "sed -i.bak \"s/^$setting_name.*/$setting/\" \"$php_ini\"" "Updating $setting_name" ||
-              log "WARN" "Failed to update $setting_name"
-          else
-            echo "$setting" >>"$php_ini" || log "WARN" "Failed to add $setting"
-          fi
-        done
-      elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would configure PHP settings"
-      fi
-    else
-      log "WARN" "Could not find PHP ini directory"
-    fi
-  elif [[ "$OS" == "Linux" ]]; then
-    log "INFO" "Checking for PHP ini on Linux"
-    php_ini_paths=(
-      "/etc/php/php.ini"
-      "/etc/php/8.0/cli/php.ini"
-      "/etc/php/8.1/cli/php.ini"
-      "/etc/php/8.2/cli/php.ini"
-      "/etc/php/8.3/cli/php.ini"
-      "/etc/php/8.4/cli/php.ini"
-    )
-
-    for php_ini in "${php_ini_paths[@]}"; do
-      if [[ -f "$php_ini" ]]; then
-        log "INFO" "Found PHP ini at $php_ini"
-        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-          backup_file "$php_ini"
-
-          log "INFO" "Setting development values in PHP ini"
-          for setting in "memory_limit = 512M" "upload_max_filesize = 100M" "post_max_size = 100M" "max_execution_time = 300"; do
-            setting_name="${setting%%=*}"
-            setting_name="${setting_name// /}"
-
-            if sudo grep -q "^$setting_name" "$php_ini"; then
-              execute "sudo sed -i.bak \"s/^$setting_name.*/$setting/\" \"$php_ini\"" "Updating $setting_name" ||
-                log "WARN" "Failed to update $setting_name"
-            else
-              execute "echo '$setting' | sudo tee -a \"$php_ini\"" "Adding $setting" ||
-                log "WARN" "Failed to add $setting"
-            fi
-          done
-        else
-          log "DRY" "Would configure PHP settings in $php_ini"
-        fi
-        break
-      fi
-    done
+  # Configure PHP settings for different OS platforms
+  if [[ "$OS" = "Darwin" ]]; then
+    # macOS PHP configuration
+    configure_php_macos
+  elif [[ "$OS" = "Linux" ]]; then
+    # Linux PHP configuration
+    configure_php_linux
   fi
 
+  # Verify installations
   log "INFO" "Verifying installations"
 
   if command_exists php; then
@@ -279,6 +202,139 @@ export PATH=\"\$PATH:\$HOME/.composer/vendor/bin\"
 
   log "SUCCESS" "PHP setup completed"
   return 0
+}
+
+# Function to manually install phpactor when Composer methods fail
+install_phpactor_manually() {
+  log "WARN" "Failed to install phpactor with standard version, trying alternative method"
+
+  # Create a temporary directory for manual installation
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  log "INFO" "Creating temporary directory for phpactor installation: $tmp_dir"
+
+  execute "cd $tmp_dir && git clone https://github.com/phpactor/phpactor.git" "Cloning phpactor repository" &&
+    execute "cd $tmp_dir/phpactor && composer install --no-dev" "Installing phpactor dependencies" &&
+    execute "mkdir -p $HOME/.local/bin" "Creating local bin directory" &&
+    execute "ln -sf $tmp_dir/phpactor/bin/phpactor $HOME/.local/bin/phpactor" "Creating phpactor symlink" &&
+    execute "chmod +x $HOME/.local/bin/phpactor" "Making phpactor executable" ||
+    log "WARN" "Failed to install phpactor manually"
+}
+
+# Configure PHP on macOS
+configure_php_macos() {
+  local php_ini_dirs=(
+    "/usr/local/etc/php/8.4"
+    "/usr/local/etc/php/8.3"
+    "/usr/local/etc/php/8.2"
+    "/usr/local/etc/php/8.1"
+    "/usr/local/etc/php/8.0"
+    "/usr/local/etc/php/7.4"
+    "/opt/homebrew/etc/php/8.4"
+    "/opt/homebrew/etc/php/8.3"
+    "/opt/homebrew/etc/php/8.2"
+    "/opt/homebrew/etc/php/8.1"
+  )
+
+  local php_ini_dir=""
+  for dir in "${php_ini_dirs[@]}"; do
+    if [[ -d "$dir" ]]; then
+      php_ini_dir="$dir"
+      break
+    fi
+  done
+
+  if [[ -n "$php_ini_dir" ]]; then
+    log "INFO" "Configuring PHP settings in $php_ini_dir"
+
+    local php_ini="$php_ini_dir/php.ini"
+    if [[ ! -f "$php_ini" ]] && [[ -f "$php_ini_dir/php.ini-development" ]]; then
+      log "INFO" "Creating PHP ini from development template"
+      execute "cp \"$php_ini_dir/php.ini-development\" \"$php_ini\"" "Creating PHP ini" ||
+        log "WARN" "Failed to create PHP ini"
+    fi
+
+    if [[ -f "$php_ini" ]] && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      backup_file "$php_ini"
+
+      log "INFO" "Setting development values in PHP ini"
+      php_settings=(
+        "memory_limit = 512M"
+        "upload_max_filesize = 100M"
+        "post_max_size = 100M"
+        "max_execution_time = 300"
+        "date.timezone = UTC"
+      )
+
+      for setting in "${php_settings[@]}"; do
+        setting_name="${setting%%=*}"
+        setting_name="${setting_name// /}"
+
+        if grep -q "^$setting_name" "$php_ini"; then
+          execute "sed -i.bak \"s/^$setting_name.*/$setting/\" \"$php_ini\"" "Updating $setting_name" ||
+            log "WARN" "Failed to update $setting_name"
+        else
+          echo "$setting" >>"$php_ini" || log "WARN" "Failed to add $setting"
+        fi
+      done
+    elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
+      log "DRY" "Would configure PHP settings"
+    fi
+  else
+    log "WARN" "Could not find PHP ini directory"
+  fi
+}
+
+# Configure PHP on Linux
+configure_php_linux() {
+  log "INFO" "Checking for PHP ini on Linux"
+  local php_ini_paths=(
+    "/etc/php/php.ini"
+    "/etc/php/8.0/cli/php.ini"
+    "/etc/php/8.1/cli/php.ini"
+    "/etc/php/8.2/cli/php.ini"
+    "/etc/php/8.3/cli/php.ini"
+    "/etc/php/8.4/cli/php.ini"
+  )
+
+  # Handle ARM-specific paths if needed
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    log "INFO" "Adding ARM-specific PHP ini paths"
+    # Add ARM-specific paths here if needed
+  fi
+
+  for php_ini in "${php_ini_paths[@]}"; do
+    if [[ -f "$php_ini" ]]; then
+      log "INFO" "Found PHP ini at $php_ini"
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        backup_file "$php_ini"
+
+        log "INFO" "Setting development values in PHP ini"
+        local php_settings=(
+          "memory_limit = 512M"
+          "upload_max_filesize = 100M"
+          "post_max_size = 100M"
+          "max_execution_time = 300"
+        )
+
+        for setting in "${php_settings[@]}"; do
+          setting_name="${setting%%=*}"
+          setting_name="${setting_name// /}"
+
+          if sudo grep -q "^$setting_name" "$php_ini"; then
+            execute "sudo sed -i.bak \"s/^$setting_name.*/$setting/\" \"$php_ini\"" "Updating $setting_name" ||
+              log "WARN" "Failed to update $setting_name"
+          else
+            execute "echo '$setting' | sudo tee -a \"$php_ini\"" "Adding $setting" ||
+              log "WARN" "Failed to add $setting"
+          fi
+        done
+      else
+        log "DRY" "Would configure PHP settings in $php_ini"
+      fi
+      break
+    fi
+  done
 }
 
 main

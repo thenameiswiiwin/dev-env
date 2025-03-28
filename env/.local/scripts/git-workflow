@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
+# Git workflow helper with cross-platform compatibility
 
 set -euo pipefail
+
+# OS and architecture detection
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+IS_ARM_CPU=$([ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ] && echo 1 || echo 0)
 
 usage() {
   echo "Git workflow helpers"
@@ -14,9 +20,11 @@ usage() {
   echo "  sync                Sync branches with remote"
   echo "  undo-commit         Undo the last commit (keeps changes)"
   echo "  clean               Clean up local branches"
+  echo "  create-tag [tag]    Create and push an annotated tag"
   exit 1
 }
 
+# Create feature branch
 git_feature() {
   local name="$1"
   local base_branch="${2:-develop}"
@@ -24,11 +32,20 @@ git_feature() {
   echo "Creating feature branch: feature/$name from $base_branch"
   git checkout "$base_branch"
   git pull origin "$base_branch"
-  git checkout -b "feature/$name"
+
+  # Use architecture-specific git flags if needed
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    # Some ARM systems benefit from these optimizations
+    git checkout -b "feature/$name" --no-track
+  else
+    git checkout -b "feature/$name"
+  fi
+
   echo "Branch created: feature/$name"
   echo "Make your changes and then use: git-workflow finish feature/$name"
 }
 
+# Create hotfix branch
 git_hotfix() {
   local name="$1"
   echo "Creating hotfix branch: hotfix/$name from main"
@@ -39,6 +56,7 @@ git_hotfix() {
   echo "Make your fixes and then use: git-workflow finish hotfix/$name"
 }
 
+# Create release branch
 git_release() {
   local version="$1"
   echo "Creating release branch: release/$version from develop"
@@ -49,6 +67,7 @@ git_release() {
   echo "Prepare release and then use: git-workflow finish release/$version"
 }
 
+# Finish a branch (merge back to base branch)
 git_finish() {
   local branch="$1"
 
@@ -93,6 +112,7 @@ git_finish() {
   echo "You can delete the branch with: git branch -d $branch"
 }
 
+# Publish branch to remote and prepare PR
 git_publish() {
   local branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 
@@ -100,10 +120,12 @@ git_publish() {
   git push -u origin "$branch"
 
   # Determine if we can create a PR
-  local remote_url=$(git remote get-url origin)
+  local remote_url
+  remote_url=$(git remote get-url origin)
   if [[ "$remote_url" == *"github.com"* ]]; then
     # Extract repo info from GitHub URL
-    local repo=$(echo "$remote_url" | sed -e 's/.*github.com[:\/]\(.*\)\.git/\1/')
+    local repo
+    repo=$(echo "$remote_url" | sed -e 's/.*github.com[:\/]\(.*\)\.git/\1/')
 
     echo "Creating GitHub PR for $branch"
     if command -v gh &>/dev/null; then
@@ -115,7 +137,8 @@ git_publish() {
     fi
   elif [[ "$remote_url" == *"gitlab.com"* ]]; then
     # Extract repo info from GitLab URL
-    local repo=$(echo "$remote_url" | sed -e 's/.*gitlab.com[:\/]\(.*\)\.git/\1/')
+    local repo
+    repo=$(echo "$remote_url" | sed -e 's/.*gitlab.com[:\/]\(.*\)\.git/\1/')
 
     echo "Visit https://gitlab.com/$repo/-/merge_requests/new?merge_request[source_branch]=$branch to create MR"
   else
@@ -123,18 +146,27 @@ git_publish() {
   fi
 }
 
+# Sync branches with remote with architecture awareness
 git_sync() {
   echo "Syncing branches with remote..."
 
   # Backup current branch
-  local current_branch=$(git rev-parse --abbrev-ref HEAD)
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
 
   # Update main branches
   for branch in main develop; do
     echo "Updating $branch..."
     if git show-ref --verify --quiet refs/heads/$branch; then
       git checkout "$branch"
-      git pull origin "$branch"
+
+      # Use specialized fetching on ARM systems
+      if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+        git fetch origin "$branch" --depth=1
+        git reset --hard "origin/$branch"
+      else
+        git pull origin "$branch"
+      fi
     fi
   done
 
@@ -147,17 +179,20 @@ git_sync() {
   echo "Branch synchronization completed"
 }
 
+# Undo last commit (keeping changes)
 git_undo_commit() {
   echo "Undoing last commit (keeping changes)..."
   git reset --soft HEAD~1
   echo "Last commit undone. Changes preserved and ready to be committed again."
 }
 
+# Clean up merged branches
 git_clean() {
   echo "Cleaning up merged branches..."
 
   # Save current branch
-  local current_branch=$(git rev-parse --abbrev-ref HEAD)
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
 
   # Get main branches
   git checkout main
@@ -166,13 +201,14 @@ git_clean() {
   git pull origin develop
 
   # Find merged branches
-  local merged_branches=$(git branch --merged develop | grep -v "^\*" | grep -v "main" | grep -v "develop")
+  local merged_branches
+  merged_branches=$(git branch --merged develop | grep -v "^\*" | grep -v "main" | grep -v "develop")
 
   if [[ -n "$merged_branches" ]]; then
     echo "The following branches are merged and can be deleted:"
     echo "$merged_branches"
 
-    read -p "Delete these branches? (y/n): " confirm
+    read -p -r "Delete these branches? (y/n): " confirm
     if [[ "$confirm" == [yY] ]]; then
       echo "$merged_branches" | xargs git branch -d
       echo "Branches deleted"
@@ -185,6 +221,18 @@ git_clean() {
 
   # Return to original branch
   git checkout "$current_branch"
+}
+
+# Create and push an annotated tag
+git_create_tag() {
+  local tag="$1"
+  local message="${2:-Release $tag}"
+
+  echo "Creating annotated tag: $tag"
+  git tag -a "$tag" -m "$message"
+  git push origin "$tag"
+
+  echo "Tag $tag created and pushed to remote"
 }
 
 # Main command handling
@@ -235,6 +283,13 @@ undo-commit)
   ;;
 clean)
   git_clean
+  ;;
+create-tag)
+  if [[ $# -lt 1 ]]; then
+    echo "Error: Tag name required"
+    usage
+  fi
+  git_create_tag "$1" "${2:-}"
   ;;
 *)
   echo "Unknown command: $command"

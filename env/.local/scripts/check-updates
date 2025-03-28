@@ -1,14 +1,31 @@
 #!/usr/bin/env bash
+# Cross-platform update checker for development tools
 
 set -e
 
+# System detection
 OS="$(uname -s)"
-echo "Checking for updates..."
+ARCH="$(uname -m)"
+IS_ARM_CPU=$([ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ] && echo 1 || echo 0)
 
-# Check Homebrew updates
-if command -v brew &>/dev/null; then
+echo "Checking for updates on $OS ($ARCH)..."
+
+# Function to check if command exists
+command_exists() {
+  command -v "$1" &>/dev/null
+}
+
+# Check Homebrew updates with architecture awareness
+if command_exists brew; then
   echo "Checking Homebrew packages..."
   brew update >/dev/null
+
+  # ARM-specific Homebrew handling
+  if [[ "$IS_ARM_CPU" -eq 1 && "$OS" = "Darwin" ]]; then
+    echo "Checking for Apple Silicon optimized packages..."
+    brew outdated --verbose | grep -i "arm" || echo "All ARM packages are up to date."
+  fi
+
   outdated=$(brew outdated)
   if [[ -n "$outdated" ]]; then
     echo "Homebrew packages that need updating:"
@@ -17,10 +34,38 @@ if command -v brew &>/dev/null; then
   else
     echo "All Homebrew packages are up to date."
   fi
+else
+  # For ARM Linux or systems without Homebrew
+  if [[ "$IS_ARM_LINUX" -eq 1 ]]; then
+    echo "Homebrew not used on ARM Linux, checking system packages..."
+
+    # Check distribution-specific package updates
+    if command_exists apt; then
+      echo "Checking apt updates..."
+      sudo apt update >/dev/null
+      updates=$(apt list --upgradable 2>/dev/null | grep -v "Listing...")
+      if [[ -n "$updates" ]]; then
+        echo "APT packages that need updating:"
+        echo "$updates"
+      else
+        echo "All apt packages are up to date."
+      fi
+    elif command_exists pacman; then
+      echo "Checking Arch updates..."
+      sudo pacman -Sy >/dev/null
+      updates=$(pacman -Qu)
+      if [[ -n "$updates" ]]; then
+        echo "Pacman packages that need updating:"
+        echo "$updates"
+      else
+        echo "All pacman packages are up to date."
+      fi
+    fi
+  fi
 fi
 
-# Check Node.js updates
-if command -v npm &>/dev/null; then
+# Check Node.js updates with architecture awareness
+if command_exists npm; then
   echo "Checking npm global packages..."
   outdated=$(npm -g outdated --parseable)
   if [[ -n "$outdated" ]]; then
@@ -30,22 +75,105 @@ if command -v npm &>/dev/null; then
   else
     echo "All npm global packages are up to date."
   fi
-fi
 
-# Check Cargo updates
-if command -v cargo &>/dev/null; then
-  echo "Checking Cargo packages..."
-  if command -v cargo-outdated &>/dev/null; then
-    outdated=$(cargo outdated --root-deps-only)
-    if [[ "$outdated" != *"All is up to date"* ]]; then
-      echo "Cargo packages that need updating:"
-      echo "$outdated" | grep -v "Name" | grep -v "----" | grep -v "^$"
+  # Check for package.json updates in current directory
+  if [[ -f "package.json" ]]; then
+    echo "Checking local npm packages in current project..."
+    outdated_local=$(npm outdated --parseable)
+    if [[ -n "$outdated_local" ]]; then
+      echo "Local npm packages that need updating:"
+      echo "$outdated_local" | awk -F: '{print $2 " (" $3 " -> " $4 ")"}'
       echo ""
     else
-      echo "All Cargo packages are up to date."
+      echo "All local npm packages are up to date."
+    fi
+  fi
+fi
+
+# Check Cargo updates with architecture awareness
+if command_exists cargo; then
+  echo "Checking Cargo packages..."
+
+  # Use different checks based on architecture
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    if command_exists cargo-outdated; then
+      outdated=$(cargo outdated --root-deps-only --exit-code 0)
+      if [[ "$outdated" != *"All is up to date"* ]]; then
+        echo "Cargo packages that need updating (ARM):"
+        echo "$outdated" | grep -v "Name" | grep -v "----" | grep -v "^$"
+        echo ""
+      else
+        echo "All Cargo packages are up to date."
+      fi
+    else
+      echo "Install cargo-outdated for better cargo update checking."
     fi
   else
-    echo "Install cargo-outdated for better cargo update checking."
+    if command_exists cargo-outdated; then
+      outdated=$(cargo outdated --root-deps-only)
+      if [[ "$outdated" != *"All is up to date"* ]]; then
+        echo "Cargo packages that need updating:"
+        echo "$outdated" | grep -v "Name" | grep -v "----" | grep -v "^$"
+        echo ""
+      else
+        echo "All Cargo packages are up to date."
+      fi
+    else
+      echo "Install cargo-outdated for better cargo update checking."
+    fi
+  fi
+fi
+
+# Check Python packages
+if command_exists pip3; then
+  echo "Checking Python packages..."
+
+  # Handle different Python environments
+  if [[ -d "$HOME/.python-global-env" ]]; then
+    echo "Checking global Python environment..."
+    outdated=$("$HOME/.python-global-env/bin/pip" list --outdated 2>/dev/null)
+    if [[ -n "$outdated" ]]; then
+      echo "Python packages that need updating in global environment:"
+      echo "$outdated" | grep -v "^Package" | grep -v "^-------"
+      echo ""
+    else
+      echo "All Python packages in global environment are up to date."
+    fi
+  else
+    outdated=$(pip3 list --outdated 2>/dev/null)
+    if [[ -n "$outdated" ]]; then
+      echo "Python packages that need updating:"
+      echo "$outdated" | grep -v "^Package" | grep -v "^-------"
+      echo ""
+    else
+      echo "All Python packages are up to date."
+    fi
+  fi
+fi
+
+# Check Go modules if in a Go project
+if command_exists go && [[ -f "go.mod" ]]; then
+  echo "Checking Go modules in current project..."
+  outdated=$(go list -u -m all 2>/dev/null | grep "\[" || echo "")
+  if [[ -n "$outdated" ]]; then
+    echo "Go modules that need updating:"
+    echo "$outdated"
+    echo ""
+  else
+    echo "All Go modules are up to date."
+  fi
+fi
+
+# Check PHP Composer packages
+if command_exists composer && [[ -f "composer.json" ]]; then
+  echo "Checking Composer packages in current project..."
+  outdated=$(composer outdated --direct 2>/dev/null)
+  if [[ "$outdated" != *"All packages are up to date"* ]]; then
+    echo "Composer packages that need updating:"
+    echo "$outdated" | grep -v "^Checking" | grep -v "^All packages" | grep -v "^$"
+    echo ""
+  else
+    echo "All Composer packages are up to date."
   fi
 fi
 
@@ -60,27 +188,8 @@ if [[ "$OS" == "Darwin" ]]; then
     echo "macOS is up to date."
   fi
 elif [[ "$OS" == "Linux" ]]; then
-  if command -v apt &>/dev/null; then
-    echo "Checking apt updates..."
-    sudo apt update >/dev/null
-    updates=$(apt list --upgradable 2>/dev/null)
-    if [[ "$updates" != "Listing..." ]]; then
-      echo "APT packages that need updating:"
-      echo "$updates" | grep -v "Listing..."
-    else
-      echo "All apt packages are up to date."
-    fi
-  elif command -v pacman &>/dev/null; then
-    echo "Checking Arch updates..."
-    sudo pacman -Sy >/dev/null
-    updates=$(pacman -Qu)
-    if [[ -n "$updates" ]]; then
-      echo "Pacman packages that need updating:"
-      echo "$updates"
-    else
-      echo "All pacman packages are up to date."
-    fi
-  fi
+  # Already checked above for package managers
+  echo "System package updates checked above."
 fi
 
 echo "Update check completed!"

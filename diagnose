@@ -58,6 +58,8 @@ check_env_variables() {
   log "INFO" "PATH=${PATH:-not set}"
   log "INFO" "ARCH=$(uname -m)"
   log "INFO" "OS=$(uname -s)"
+  log "INFO" "IS_ARM_CPU=${IS_ARM_CPU:-not set}"
+  log "INFO" "IS_ARM_LINUX=${IS_ARM_LINUX:-not set}"
 
   return 0
 }
@@ -88,6 +90,15 @@ check_commands() {
       esac
     else
       log "WARN" "Command not found: $cmd"
+
+      # Check common alternative locations
+      for alt_path in "/usr/local/bin/$cmd" "/opt/homebrew/bin/$cmd" "$HOME/.local/bin/$cmd" "$HOME/.cargo/bin/$cmd"; do
+        if [[ -x "$alt_path" ]]; then
+          log "INFO" "Found alternative at: $alt_path"
+          "$alt_path" --version 2>/dev/null || log "WARN" "Could not get version from alternative location"
+          break
+        fi
+      done
     fi
   done
 
@@ -102,12 +113,23 @@ check_homebrew() {
     log "INFO" "Homebrew installed packages:"
     brew list --formula | head -n 10 || log "WARN" "Could not list Homebrew packages"
 
-    if [[ "$OS" == "Darwin" ]]; then
+    if [[ "$OS" = "Darwin" ]]; then
       log "INFO" "Homebrew installed casks:"
       brew list --cask | head -n 10 || log "WARN" "Could not list Homebrew casks"
     fi
+
+    # Check for ARM-specific issues if relevant
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      log "INFO" "Checking ARM-specific Homebrew settings"
+      brew config | grep "CPU" || log "WARN" "Could not determine CPU architecture from Homebrew"
+    fi
   else
     log "WARN" "Homebrew not found"
+
+    # Check ARM Linux skipping
+    if [[ "$IS_ARM_LINUX" -eq 1 ]]; then
+      log "INFO" "Homebrew skipped on ARM Linux as expected"
+    fi
   fi
 
   return 0
@@ -183,6 +205,44 @@ check_zsh_config() {
   return 0
 }
 
+check_architecture_issues() {
+  log "INFO" "Performing architecture-specific checks:"
+
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    log "INFO" "ARM CPU detected (arch: $ARCH)"
+
+    # Check for common ARM issues with libraries
+    if [[ "$OS" = "Linux" ]]; then
+      log "INFO" "Checking ARM Linux compatibility"
+
+      # Check system calls required by Homebrew
+      if command_exists uname; then
+        log "INFO" "uname system details:"
+        uname -a || log "WARN" "Could not get uname details"
+      fi
+
+      # Check Docker ARM compatibility
+      if command_exists docker; then
+        log "INFO" "Docker architecture support:"
+        docker info | grep -E "Architecture|Operating System" || log "WARN" "Could not get Docker architecture info"
+      fi
+    elif [[ "$OS" = "Darwin" ]]; then
+      # Check Rosetta 2 on Apple Silicon
+      if [[ "$ARCH" = "arm64" ]]; then
+        log "INFO" "Checking Rosetta 2 status on Apple Silicon"
+        if [[ -f /usr/sbin/softwareupdate ]]; then
+          rosetta_status=$(pgrep -q oahd && echo "Installed" || echo "Not installed")
+          log "INFO" "Rosetta 2 status: $rosetta_status"
+        else
+          log "WARN" "Could not determine Rosetta 2 status"
+        fi
+      fi
+    fi
+  fi
+
+  return 0
+}
+
 main() {
   log "INFO" "Starting diagnostic checks for environment: $DEV_ENV"
 
@@ -208,6 +268,9 @@ main() {
 
   # Check Zsh configuration
   check_zsh_config
+
+  # Check architecture-specific issues
+  check_architecture_issues
 
   # Check network connectivity
   log "INFO" "Checking network connectivity:"

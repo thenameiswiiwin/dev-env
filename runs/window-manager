@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Window manager installation and configuration
 
 set -euo pipefail
 
@@ -8,6 +9,7 @@ if ! source "$script_dir/../utilities" 2>/dev/null; then
   exit 1
 fi
 
+# Configure Rectangle window manager for macOS
 configure_rectangle() {
   local config_src="$DEV_ENV/env/.config/rectangle/RectangleConfig.json"
   local config_dest="$HOME/Library/Application Support/Rectangle/RectangleConfig.json"
@@ -26,6 +28,7 @@ configure_rectangle() {
   fi
 }
 
+# Configure i3 window manager for Linux
 configure_i3() {
   local config_src="$DEV_ENV/env/.config/i3/config"
   local config_dest="$XDG_CONFIG_HOME/i3/config"
@@ -69,11 +72,12 @@ configure_i3() {
   fi
 }
 
+# Install window manager dependencies for Linux
 install_linux_wm_dependencies() {
   log "INFO" "Installing window manager dependencies"
 
   # Common dependencies
-  dependencies=(
+  local dependencies=(
     "xorg"
     "xinit"
     "feh"   # For setting background
@@ -82,20 +86,32 @@ install_linux_wm_dependencies() {
     "picom" # Compositor
   )
 
+  # Add ARM-specific or architecture-specific packages if needed
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    log "INFO" "Adding ARM-specific window manager dependencies"
+    # Currently no ARM-specific dependencies, but this is where you'd add them
+  fi
+
   # Install dependencies based on package manager
   if command_exists apt; then
-    execute "sudo apt update" "Updating apt repositories"
+    execute "sudo apt-get update" "Updating apt repositories"
 
     for dep in "${dependencies[@]}"; do
-      execute "sudo apt install -y $dep" "Installing $dep" || log "WARN" "Failed to install $dep"
+      local pkg
+      pkg=$(map_package_name "$dep" "apt")
+      execute "sudo apt-get install -y $pkg" "Installing $dep" || log "WARN" "Failed to install $dep"
     done
   elif command_exists pacman; then
     for dep in "${dependencies[@]}"; do
-      execute "sudo pacman -Sy --noconfirm $dep" "Installing $dep" || log "WARN" "Failed to install $dep"
+      local pkg
+      pkg=$(map_package_name "$dep" "pacman")
+      execute "sudo pacman -Sy --noconfirm $pkg" "Installing $dep" || log "WARN" "Failed to install $dep"
     done
   elif command_exists apk; then
     for dep in "${dependencies[@]}"; do
-      execute "sudo apk add --no-cache $dep" "Installing $dep" || log "WARN" "Failed to install $dep"
+      local pkg
+      pkg=$(map_package_name "$dep" "apk")
+      execute "sudo apk add --no-cache $pkg" "Installing $dep" || log "WARN" "Failed to install $dep"
     done
   else
     log "WARN" "No supported package manager found for installing dependencies"
@@ -107,7 +123,8 @@ main() {
 
   init_homebrew
 
-  if [[ "$OS" == "Darwin" ]]; then
+  # Platform-specific installation
+  if [[ "$OS" = "Darwin" ]]; then
     log "INFO" "Installing Rectangle window manager (macOS)"
     install_cask "rectangle" || log "WARN" "Failed to install Rectangle"
 
@@ -115,6 +132,7 @@ main() {
 
     log "INFO" "Installing additional window management tools"
     additional_casks=(
+      # Uncomment if using this feature
       # "alt-tab" # Better Alt-Tab app switching
     )
 
@@ -123,19 +141,21 @@ main() {
       install_cask "$cask" || log "WARN" "Failed to install $cask"
     done
 
-  elif [[ "$OS" == "Linux" ]]; then
+  elif [[ "$OS" = "Linux" ]]; then
     log "INFO" "Installing i3 window manager (Linux)"
 
-    if brew install i3 2>/dev/null; then
+    # Try installing with Homebrew first for non-ARM systems
+    if [[ "$IS_ARM_LINUX" -eq 0 ]] && brew install i3 2>/dev/null; then
       log "INFO" "i3 installed successfully with Homebrew"
     else
-      log "WARN" "Homebrew installation failed, trying distribution package manager"
+      log "WARN" "Homebrew installation failed or skipped for ARM, trying distribution package manager"
 
+      # Install with appropriate package manager
       if command_exists apt; then
         log "INFO" "Installing i3 with apt"
         install_linux_wm_dependencies
-        execute "sudo apt update" "Updating apt repositories" &&
-          execute "sudo apt install -y i3 i3-wm i3status dunst i3lock" "Installing i3" ||
+        execute "sudo apt-get update" "Updating apt repositories" &&
+          execute "sudo apt-get install -y i3 i3-wm i3status dunst i3lock" "Installing i3" ||
           log "WARN" "Failed to install i3 with apt"
       elif command_exists pacman; then
         log "INFO" "Installing i3 with pacman"

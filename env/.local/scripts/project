@@ -1,19 +1,28 @@
 #!/usr/bin/env bash
+# Project management script with cross-platform compatibility
 
 set -euo pipefail
 
-PROJECTS_DIR="${PROJECTS_DIR:-$HOME/dev}"
+# Environment variables with defaults
+: "${PROJECTS_DIR:="$HOME/dev"}"
+
+# OS and architecture detection
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+IS_ARM_CPU=$([ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ] && echo 1 || echo 0)
 
 usage() {
   echo "Usage: project [command] [arguments]"
   echo "Commands:"
-  echo "  create [name] [type]   Create new project (types: node, react, go, rust, python)"
+  echo "  create [name] [type]   Create new project (types: node, react, go, rust, python, php)"
   echo "  list                   List existing projects"
   echo "  open [name]            Open project in editor"
   echo "  clone [repo-url]       Clone a repository and set it up"
+  echo "  info [name]            Display project information"
   exit 1
 }
 
+# Create a new project with platform awareness
 create_project() {
   local name="$1"
   local type="${2:-node}"
@@ -27,29 +36,175 @@ create_project() {
   mkdir -p "$project_dir"
   cd "$project_dir"
 
+  # Architecture-specific setup if needed
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    echo "Setting up project on ARM architecture ($ARCH)..."
+  fi
+
   case "$type" in
   node)
     npm init -y
     echo "node_modules" >.gitignore
+    echo "dist" >>.gitignore
+    echo ".env" >>.gitignore
     mkdir -p src
+
+    # Create minimal package.json with type module
+    cat >package.json <<EOF
+{
+  "name": "${name}",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT"
+}
+EOF
+
+    # Create minimal index.js
+    cat >src/index.js <<EOF
+console.log('Project ${name} initialized');
+EOF
     ;;
   react)
-    npx create-react-app .
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      # Use Vite for ARM (faster and lighter)
+      npm create vite@latest . -- --template react
+    else
+      # Standard create-react-app
+      npx create-react-app .
+    fi
     ;;
   go)
-    go mod init "github.com/$(whoami)/$name"
+    # Handle different architectures for Go
+    local user
+    user=$(whoami)
+    go mod init "github.com/$user/$name"
     mkdir -p cmd pkg internal
-    echo "bin/" >.gitignore
+
+    # Create gitignore with architecture-specific binaries
+    cat >.gitignore <<EOF
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Architecture-specific artifacts
+*_arm64
+*_amd64
+
+# Output
+*.out
+
+# Dependency directories
+vendor/
+EOF
+
+    # Create minimal main.go file
+    mkdir -p cmd/"$name"
+    cat >cmd/"$name"/main.go <<EOF
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Project ${name} initialized")
+}
+EOF
     ;;
   rust)
     cargo init
+
+    # Add cross-architecture compilation support
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      cargo install cross
+      echo "Cross-compilation support installed for ARM"
+    fi
     ;;
   python)
     python3 -m venv .venv
     echo ".venv" >.gitignore
     echo "*.pyc" >>.gitignore
     echo "__pycache__" >>.gitignore
+    echo ".pytest_cache" >>.gitignore
+
     mkdir -p src tests
+
+    # Create setup files
+    cat >pyproject.toml <<EOF
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+
+[tool.pytest]
+testpaths = ["tests"]
+EOF
+
+    # Create minimal main module
+    mkdir -p src/"$name"
+    touch src/"$name"/__init__.py
+    cat >src/"$name"/main.py <<EOF
+def main():
+    print("Project ${name} initialized")
+
+if __name__ == "__main__":
+    main()
+EOF
+    ;;
+  php)
+    # Check for composer first
+    if command -v composer >/dev/null 2>&1; then
+      composer init --name="app/$name" --type="project" --no-interaction
+    else
+      mkdir -p src public
+      # Create composer.json manually
+      cat >composer.json <<EOF
+{
+    "name": "app/${name}",
+    "description": "",
+    "type": "project",
+    "require": {
+        "php": ">=7.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\\\": "src/"
+        }
+    }
+}
+EOF
+    fi
+
+    # Add .gitignore for PHP
+    cat >.gitignore <<EOF
+/vendor/
+.env
+.phpunit.result.cache
+EOF
+
+    # Create minimal index.php
+    mkdir -p public
+    cat >public/index.php <<EOF
+<?php
+require_once __DIR__ . '/../vendor/autoload.php';
+
+echo "Project ${name} initialized";
+EOF
     ;;
   *)
     echo "Unknown project type: $type"
@@ -65,11 +220,18 @@ create_project() {
   echo "Location: $project_dir"
 }
 
+# List existing projects
 list_projects() {
   echo "Projects in $PROJECTS_DIR:"
-  find "$PROJECTS_DIR" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | sort
+  if [[ -d "$PROJECTS_DIR" ]]; then
+    find "$PROJECTS_DIR" -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | sort
+  else
+    echo "Projects directory $PROJECTS_DIR does not exist"
+    exit 1
+  fi
 }
 
+# Open project with architecture awareness
 open_project() {
   local name="$1"
   local project_dir="$PROJECTS_DIR/$name"
@@ -81,22 +243,62 @@ open_project() {
 
   cd "$project_dir"
 
-  if command -v tmux-sessionizer &>/dev/null; then
+  # Choose appropriate method to open
+  if command -v tmux-sessionizer >/dev/null 2>&1; then
     tmux-sessionizer "$project_dir"
-  elif command -v tmux &>/dev/null; then
-    tmux new-session -d -s "$name" -c "$project_dir" 2>/dev/null || tmux switch-client -t "$name"
-    $EDITOR .
+  elif command -v tmux >/dev/null 2>&1; then
+    # Handle different tmux versions and platforms
+    if tmux has-session -t "$name" 2>/dev/null; then
+      tmux switch-client -t "$name" 2>/dev/null || tmux attach -t "$name"
+    else
+      tmux new-session -d -s "$name" -c "$project_dir" 2>/dev/null
+
+      # Detect preferred editor with fallbacks
+      local editor="${EDITOR:-nvim}"
+      if ! command -v "$editor" >/dev/null 2>&1; then
+        for alt_editor in vim nano vi emacs code; do
+          if command -v "$alt_editor" >/dev/null 2>&1; then
+            editor="$alt_editor"
+            break
+          fi
+        done
+      fi
+
+      tmux send-keys -t "$name" "$editor ." C-m
+      tmux switch-client -t "$name" 2>/dev/null || tmux attach -t "$name"
+    fi
   else
-    $EDITOR .
+    # No tmux, just open editor
+    local editor="${EDITOR:-nvim}"
+    if ! command -v "$editor" >/dev/null 2>&1; then
+      for alt_editor in vim nano vi emacs code; do
+        if command -v "$alt_editor" >/dev/null 2>&1; then
+          editor="$alt_editor"
+          break
+        fi
+      done
+    fi
+
+    $editor .
   fi
 }
 
+# Clone and setup repository with architecture support
 clone_project() {
   local repo_url="$1"
-  local name=$(basename "$repo_url" .git)
+  local name
+  name=$(basename "$repo_url" .git)
   local project_dir="$PROJECTS_DIR/$name"
 
-  git clone "$repo_url" "$project_dir"
+  echo "Cloning repository..."
+
+  # Handle ARM-specific git flags if needed
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    git clone --depth 1 "$repo_url" "$project_dir"
+  else
+    git clone "$repo_url" "$project_dir"
+  fi
+
   cd "$project_dir"
 
   # Auto-setup based on repo content
@@ -113,9 +315,69 @@ clone_project() {
     echo "Setting up Python environment..."
     python3 -m venv .venv
     .venv/bin/pip install -r requirements.txt
+  elif [[ -f "composer.json" ]]; then
+    echo "Installing PHP dependencies..."
+    if command -v composer >/dev/null 2>&1; then
+      composer install
+    else
+      echo "Warning: Composer not found. Please install PHP dependencies manually."
+    fi
   fi
 
   echo "Repository cloned successfully to $project_dir"
+}
+
+# Display project information
+project_info() {
+  local name="$1"
+  local project_dir="$PROJECTS_DIR/$name"
+
+  if [[ ! -d "$project_dir" ]]; then
+    echo "Project $name not found"
+    exit 1
+  fi
+
+  echo "Project: $name"
+  echo "Location: $project_dir"
+
+  cd "$project_dir"
+
+  # Detect project type
+  if [[ -f "package.json" ]]; then
+    echo "Type: Node.js"
+    echo "Node version: $(node --version 2>/dev/null || echo 'not installed')"
+    if [[ -f "yarn.lock" ]]; then
+      echo "Package manager: Yarn"
+      echo "Dependencies: $(grep -c "\"dependencies\":" package.json || echo 'unknown')"
+    elif [[ -f "pnpm-lock.yaml" ]]; then
+      echo "Package manager: pnpm"
+      echo "Dependencies: $(grep -c "\"dependencies\":" package.json || echo 'unknown')"
+    else
+      echo "Package manager: npm"
+      echo "Dependencies: $(grep -c "\"dependencies\":" package.json || echo 'unknown')"
+    fi
+  elif [[ -f "go.mod" ]]; then
+    echo "Type: Go"
+    echo "Go version: $(go version 2>/dev/null || echo 'not installed')"
+    echo "Module: $(head -n1 go.mod | cut -d' ' -f2)"
+  elif [[ -f "Cargo.toml" ]]; then
+    echo "Type: Rust"
+    echo "Rust version: $(rustc --version 2>/dev/null || echo 'not installed')"
+  elif [[ -f "pyproject.toml" || -f "setup.py" || -d ".venv" ]]; then
+    echo "Type: Python"
+    echo "Python version: $(python3 --version 2>/dev/null || echo 'not installed')"
+  elif [[ -f "composer.json" ]]; then
+    echo "Type: PHP"
+    echo "PHP version: $(php --version 2>/dev/null | head -n1 || echo 'not installed')"
+  else
+    echo "Type: Unknown"
+  fi
+
+  # Git info
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Git branch: $(git branch --show-current)"
+    echo "Last commit: $(git log -1 --format='%h - %s' 2>/dev/null || echo 'no commits')"
+  fi
 }
 
 # Main command handling
@@ -150,6 +412,13 @@ clone)
     usage
   fi
   clone_project "$1"
+  ;;
+info)
+  if [[ $# -lt 1 ]]; then
+    echo "Error: Project name required"
+    usage
+  fi
+  project_info "$1"
   ;;
 *)
   echo "Unknown command: $command"

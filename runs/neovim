@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Neovim installation and configuration
 
 set -euo pipefail
 
@@ -17,13 +18,13 @@ main() {
   if ! install_package "neovim"; then
     log "WARN" "Homebrew installation failed, trying alternative methods"
 
-    if [[ "$OS" == "Linux" ]]; then
+    if [[ "$OS" = "Linux" ]]; then
       # Try distribution-specific repositories first
       if command_exists apt; then
         log "INFO" "Installing Neovim via apt repository"
         if execute "sudo add-apt-repository -y ppa:neovim-ppa/unstable" "Adding Neovim PPA"; then
-          if execute "sudo apt update" "Updating apt repositories"; then
-            execute "sudo apt install -y neovim" "Installing Neovim" || log "ERROR" "Failed to install Neovim package"
+          if execute "sudo apt-get update" "Updating apt repositories"; then
+            execute "sudo apt-get install -y neovim" "Installing Neovim" || log "ERROR" "Failed to install Neovim package"
           else
             log "ERROR" "Failed to update apt repositories"
           fi
@@ -40,14 +41,14 @@ main() {
         log "INFO" "Installing Neovim via dnf"
         execute "sudo dnf install -y neovim" "Installing Neovim with dnf"
       else
-        # Try AppImage as a last resort
+        # Try AppImage as a last resort for universal Linux support
         log "INFO" "Trying to install Neovim AppImage"
         execute "mkdir -p $HOME/.local/bin" "Creating local bin directory"
         execute "curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage" "Downloading Neovim AppImage"
         execute "chmod u+x nvim.appimage" "Making AppImage executable"
         execute "mv nvim.appimage $HOME/.local/bin/nvim" "Moving AppImage to bin directory"
       fi
-    elif [[ "$OS" == "Darwin" ]]; then
+    elif [[ "$OS" = "Darwin" ]]; then
       # Try the --HEAD option for macOS
       log "INFO" "Trying to install Neovim with --HEAD flag"
       execute "brew install --HEAD neovim" "Installing Neovim with --HEAD flag"
@@ -65,11 +66,13 @@ main() {
     "ripgrep" # For Telescope plugin
   )
 
-  # Additional dependencies based on OS
-  if [[ "$OS" == "Linux" ]]; then
-    dependencies+=("xclip") # For clipboard support on Linux
+  # Platform-specific dependencies
+  if [[ "$OS" = "Linux" ]]; then
+    # Clipboard support on Linux
+    dependencies+=("xclip")
   fi
 
+  # Install dependencies
   for dep in "${dependencies[@]}"; do
     if ! command_exists "$dep" && ! brew_installed "$dep"; then
       log "INFO" "Installing dependency: $dep"
@@ -86,17 +89,23 @@ main() {
     execute "mkdir -p \"$nvim_config_dir\"" "Creating directory"
   fi
 
-  # Set up Python support for Neovim
+  # Set up Python support for Neovim with architecture awareness
   if command_exists python3 && command_exists pip3; then
     log "INFO" "Setting up Python support for Neovim"
     if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-      pip3 install --user pynvim 2>/dev/null || pip3 install --user pynvim --break-system-packages 2>/dev/null || log "WARN" "Failed to install pynvim"
+      # Handle different pip installation methods
+      if [[ "$IS_ARM_LINUX" -eq 1 || "$IS_ARM_CPU" -eq 1 ]]; then
+        # ARM systems might need --break-system-packages
+        pip3 install --user pynvim 2>/dev/null || pip3 install --user pynvim --break-system-packages 2>/dev/null || log "WARN" "Failed to install pynvim"
+      else
+        pip3 install --user pynvim 2>/dev/null || log "WARN" "Failed to install pynvim"
+      fi
     else
       log "DRY" "Would install pynvim for Python support"
     fi
   fi
 
-  # Set up Node.js support for Neovim
+  # Set up Node.js support for Neovim if available
   if command_exists npm; then
     log "INFO" "Setting up Node.js support for Neovim"
     if [[ ${DRY_RUN:-0} -eq 0 ]]; then
@@ -106,16 +115,19 @@ main() {
     fi
   fi
 
-  # Install a modern clipboard provider if needed
-  if [[ "$OS" == "Linux" ]] && ! command_exists xclip && ! command_exists xsel; then
+  # Install clipboard provider for Linux if needed
+  if [[ "$OS" = "Linux" ]] && ! command_exists xclip && ! command_exists xsel; then
     log "INFO" "Installing clipboard provider"
     install_with_system_package_manager "xclip" || install_with_system_package_manager "xsel" || log "WARN" "Failed to install clipboard provider"
   fi
 
-  # Verify installation
+  # Verify installation with architecture awareness
   if command_exists nvim; then
     nvim_version=$(nvim --version | head -n 1)
     log "INFO" "Neovim installed successfully: $nvim_version"
+  elif [[ -x "$HOME/.local/bin/nvim" ]]; then
+    nvim_version=$("$HOME/.local/bin/nvim" --version | head -n 1)
+    log "INFO" "Neovim installed successfully (in ~/.local/bin): $nvim_version"
   else
     log "WARN" "Neovim installation could not be verified"
   fi

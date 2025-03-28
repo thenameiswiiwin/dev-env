@@ -49,6 +49,5 @@ else
   log "INFO" "keyboard directory not found, not a critical component"
 fi
 
-
 log "SUCCESS" "Submodule initialization completed"
 exit 0

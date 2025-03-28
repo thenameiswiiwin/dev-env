@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# update - Script to update the development environment
 # Usage: ./update [--dry]
 #   --dry: Dry run mode (preview changes without making them)
 
@@ -11,7 +10,7 @@ source "$script_dir/utilities" 2>/dev/null || {
   exit 1
 }
 
-if [[ "${1:-}" == "--dry" ]]; then
+if [[ "${1:-}" = "--dry" ]]; then
   export DRY_RUN=1
 fi
 
@@ -28,7 +27,7 @@ log "INFO" "Updating submodules"
 execute "cd \"$DEV_ENV\" && ./init" "Updating git submodules"
 
 update_homebrew() {
-  if command_exists brew; then
+  if command_exists brew && [[ "$IS_ARM_LINUX" -eq 0 ]]; then
     log "INFO" "Updating Homebrew"
     execute "brew update" "Updating Homebrew"
 
@@ -38,7 +37,7 @@ update_homebrew() {
     log "INFO" "Cleaning up Homebrew"
     execute "brew cleanup" "Cleaning up Homebrew"
   else
-    log "WARN" "Homebrew not found, skipping package updates"
+    log "WARN" "Homebrew not found or ARM Linux detected, skipping package updates"
   fi
 }
 
@@ -55,14 +54,17 @@ update_pip_packages() {
   if command_exists pip3; then
     log "INFO" "Updating global pip packages"
 
+    # Check if system is externally-managed (Debian/Ubuntu 22.04+)
     if pip3 --version 2>&1 | grep -q "externally-managed-environment"; then
       log "INFO" "Detected externally-managed Python environment"
 
+      # Use virtual environment for package management
       venv_dir="$HOME/.python-global-env"
       if [[ -d "$venv_dir" ]]; then
         log "INFO" "Updating packages in Python virtual environment"
         execute "$venv_dir/bin/pip install --upgrade pip" "Upgrading pip in venv"
 
+        # Use jq if available for better parsing, otherwise fall back to awk
         if command_exists jq; then
           execute "$venv_dir/bin/pip list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 $venv_dir/bin/pip install -U" "Updating packages in venv" ||
             log "WARN" "Failed to update some packages in venv"
@@ -79,6 +81,7 @@ update_pip_packages() {
         log "INFO" "To update Python packages, run './python' to set up a virtual environment first"
       fi
     else
+      # Standard pip update for systems without external management
       if command_exists jq; then
         execute "pip3 list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 pip3 install -U --user" "Updating packages with --user flag" || {
           log "WARN" "Failed to update packages with --user flag"

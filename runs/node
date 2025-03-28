@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Node.js installation and configuration
 
 set -euo pipefail
 
@@ -68,19 +69,44 @@ main() {
       fi
     done
 
-    # Now try to install Node.js
-    log "INFO" "Installing Node.js with Homebrew"
-    if ! execute "brew install node" "Installing Node.js"; then
-      log "WARN" "Failed to install Node.js with standard method, trying with force"
-      execute "brew install --force node" "Force installing Node.js"
-    fi
+    # Install Node.js with architecture awareness
+    if [[ "$IS_ARM_LINUX" -eq 1 ]]; then
+      # ARM Linux - use system package manager or NVM
+      log "INFO" "Installing Node.js on ARM Linux"
+      if ! install_with_system_package_manager "nodejs"; then
+        log "WARN" "Failed to install Node.js with system package manager, trying NVM"
 
-    # Try to link with overwrite
-    log "INFO" "Linking Node.js with overwrite flag"
-    execute "brew link --overwrite node" "Linking Node.js with overwrite" || {
-      log "WARN" "Failed to link Node.js, trying with sudo"
-      execute "sudo brew link --overwrite node" "Linking Node.js with sudo"
-    }
+        # Install NVM and use it to install Node.js
+        log "INFO" "Installing NVM"
+        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+          # Install NVM
+          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+
+          # Load NVM
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+          # Install Node.js LTS
+          nvm install --lts
+        else
+          log "DRY" "Would install NVM and Node.js LTS"
+        fi
+      fi
+    else
+      # Non-ARM systems - use Homebrew
+      log "INFO" "Installing Node.js with Homebrew"
+      if ! execute "brew install node" "Installing Node.js"; then
+        log "WARN" "Failed to install Node.js with standard method, trying with force"
+        execute "brew install --force node" "Force installing Node.js"
+      fi
+
+      # Try to link with overwrite
+      log "INFO" "Linking Node.js with overwrite flag"
+      execute "brew link --overwrite node" "Linking Node.js with overwrite" || {
+        log "WARN" "Failed to link Node.js, trying with sudo"
+        execute "sudo brew link --overwrite node" "Linking Node.js with sudo"
+      }
+    fi
   fi
 
   # Install other Node-related packages
@@ -116,11 +142,19 @@ main() {
     }
   done
 
+  # Install Bun with architecture awareness
   log "INFO" "Installing Bun"
-  execute "brew tap oven-sh/bun && brew install bun" "Installing Bun" || {
-    log "WARN" "Failed to install Bun with Homebrew, trying curl installer"
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    # ARM-specific installation
+    log "INFO" "Installing Bun for ARM architecture"
     execute "curl -fsSL https://bun.sh/install | bash" "Installing Bun via curl"
-  }
+  else
+    # Standard installation
+    execute "brew tap oven-sh/bun && brew install bun" "Installing Bun" || {
+      log "WARN" "Failed to install Bun with Homebrew, trying curl installer"
+      execute "curl -fsSL https://bun.sh/install | bash" "Installing Bun via curl"
+    }
+  fi
 
   # Setup npm global directory to avoid permission issues
   log "INFO" "Setting up npm global directory"
@@ -168,17 +202,22 @@ export PATH=\"\$PATH:\$HOME/.npm-global/bin\"
   update_profile "$HOME/.zprofile"
   update_profile "$HOME/.bash_profile"
 
+  # Install latest LTS Node.js using n (if available)
   log "INFO" "Installing latest LTS version of Node.js"
   if command_exists n; then
     execute "n lts" "Installing Node.js LTS" || {
       log "WARN" "Failed to install Node.js LTS without sudo"
       execute "sudo n lts" "Installing Node.js LTS with sudo"
     }
+  elif command_exists nvm; then
+    # For systems using NVM instead of n
+    log "INFO" "Using NVM to install Node.js LTS"
+    execute "nvm install --lts" "Installing Node.js LTS via NVM"
   else
-    log "WARN" "n is not installed, skipping Node.js LTS installation"
+    log "WARN" "No Node.js version manager available, skipping LTS installation"
   fi
 
-  # Install global npm packages
+  # Install global npm packages with architecture awareness
   if command_exists npm && [[ ${DRY_RUN:-0} -eq 0 ]]; then
     log "INFO" "Installing global npm packages"
 
@@ -204,15 +243,23 @@ export PATH=\"\$PATH:\$HOME/.npm-global/bin\"
     log "DRY" "Would install global npm packages"
   fi
 
+  # Verify installations
   log "INFO" "Verifying installations"
 
+  # Check for node in various locations
   if command_exists node; then
     node_version=$(node --version)
     log "SUCCESS" "Node.js installed successfully: $node_version"
+  elif [[ -f "$HOME/.nvm/versions/node/$(nvm current)/bin/node" ]]; then
+    # For NVM installations
+    node_version=$("$HOME/.nvm/versions/node/$(nvm current)/bin/node" --version)
+    log "SUCCESS" "Node.js installed via NVM: $node_version"
+    log "INFO" "You may need to run 'source ~/.nvm/nvm.sh' to use Node.js"
   else
-    log "WARN" "Node.js installation could not be verified through 'node' command"
+    log "WARN" "Node.js installation could not be verified through standard paths"
 
-    if [[ -d "$(brew --prefix)/Cellar/node" ]]; then
+    # Try to find Node.js in Homebrew Cellar as a last resort
+    if command_exists brew && [[ -d "$(brew --prefix)/Cellar/node" ]]; then
       brew_node_path=$(find "$(brew --prefix)/Cellar/node" -name "node" -type f -executable | head -n 1)
       if [[ -n "$brew_node_path" ]]; then
         brew_node_version=$("$brew_node_path" --version)
@@ -223,14 +270,15 @@ export PATH=\"\$PATH:\$HOME/.npm-global/bin\"
     fi
   fi
 
+  # Check for npm
   if command_exists npm; then
     npm_version=$(npm --version)
     log "SUCCESS" "npm installed successfully: $npm_version"
   else
     log "WARN" "npm installation could not be verified"
 
-    # Try to create symlink for npm
-    if [[ -d "$(brew --prefix)/Cellar/node" ]]; then
+    # Try to create symlink for npm if found in Homebrew Cellar
+    if command_exists brew && [[ -d "$(brew --prefix)/Cellar/node" ]]; then
       brew_npm_path=$(find "$(brew --prefix)/Cellar/node" -name "npm" -type f -executable | head -n 1)
       if [[ -n "$brew_npm_path" ]]; then
         log "INFO" "Creating symlink manually: ln -sf \"$brew_npm_path\" /usr/local/bin/npm"
@@ -239,22 +287,34 @@ export PATH=\"\$PATH:\$HOME/.npm-global/bin\"
     fi
   fi
 
+  # Check for Deno (including custom installations)
   if command_exists deno; then
     deno_version=$(deno --version | head -n 1)
     log "SUCCESS" "Deno installed successfully: $deno_version"
+  elif [[ -f "$HOME/.deno/bin/deno" ]]; then
+    deno_version=$("$HOME/.deno/bin/deno" --version | head -n 1)
+    log "SUCCESS" "Deno installed in ~/.deno/bin: $deno_version"
+    log "INFO" "Add ~/.deno/bin to your PATH to use Deno globally"
   else
     log "WARN" "Deno installation could not be verified"
   fi
 
+  # Check for pnpm
   if command_exists pnpm; then
-    pnpm_version=$(pnpm --version) log "SUCCESS" "pnpm installed successfully: $pnpm_version"
+    pnpm_version=$(pnpm --version)
+    log "SUCCESS" "pnpm installed successfully: $pnpm_version"
   else
     log "WARN" "pnpm installation could not be verified"
   fi
 
+  # Check for Bun (including ARM-specific locations)
   if command_exists bun; then
     bun_version=$(bun --version)
     log "SUCCESS" "Bun installed successfully: $bun_version"
+  elif [[ -f "$HOME/.bun/bin/bun" ]]; then
+    bun_version=$("$HOME/.bun/bin/bun" --version)
+    log "SUCCESS" "Bun installed in ~/.bun/bin: $bun_version"
+    log "INFO" "Add ~/.bun/bin to your PATH to use Bun globally"
   else
     log "WARN" "Bun installation could not be verified"
   fi

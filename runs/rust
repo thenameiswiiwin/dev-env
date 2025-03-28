@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Rust environment setup
 
 set -euo pipefail
 
@@ -30,9 +31,20 @@ main() {
         log "INFO" "Trying to install Rust with rustup installer"
         if [[ ${DRY_RUN:-0} -eq 0 ]]; then
           log "INFO" "Downloading Rust installer"
-          execute "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh" "Downloading Rust installer"
-          execute "sh rustup-init.sh -y" "Installing Rust"
-          execute "rm rustup-init.sh" "Cleaning up Rust installer"
+
+          # Platform-specific installation
+          if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+            log "INFO" "Using ARM-specific installation method"
+            # Use platform detection for proper architecture support
+            execute "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh" "Downloading Rust installer"
+            execute "RUSTUP_INIT_SKIP_PATH_CHECK=yes sh rustup-init.sh -y --no-modify-path" "Installing Rust"
+            execute "rm rustup-init.sh" "Cleaning up Rust installer"
+          else
+            # Standard installation
+            execute "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh" "Downloading Rust installer"
+            execute "sh rustup-init.sh -y" "Installing Rust"
+            execute "rm rustup-init.sh" "Cleaning up Rust installer"
+          fi
         else
           log "DRY" "Would install Rust manually"
         fi
@@ -44,7 +56,7 @@ main() {
         fi
         ;;
       "luajit")
-        if [[ "$OS" == "Linux" ]]; then
+        if [[ "$OS" = "Linux" ]]; then
           log "INFO" "Trying to install LuaJIT with system package manager"
           install_with_system_package_manager "luajit"
         fi
@@ -134,7 +146,7 @@ export PATH=\"\$PATH:\$HOME/.cargo/bin\"
     log "DRY" "Would install common Rust tools"
   fi
 
-  # Verify installations - improved detection
+  # Verify installations with architecture awareness
   log "INFO" "Verifying installations"
 
   # Check for rustc - try both direct command and with explicit path
@@ -159,6 +171,7 @@ export PATH=\"\$PATH:\$HOME/.cargo/bin\"
     log "WARN" "Cargo installation could not be verified"
   fi
 
+  # Check for stylua
   if command_exists stylua; then
     stylua_version=$(stylua --version)
     log "INFO" "StyLua installed successfully: $stylua_version"
@@ -169,6 +182,7 @@ export PATH=\"\$PATH:\$HOME/.cargo/bin\"
     log "WARN" "StyLua installation could not be verified"
   fi
 
+  # Check for rustup and components
   if command_exists rustup; then
     rustup_version=$(rustup --version)
     log "INFO" "Rustup installed successfully: $rustup_version"
