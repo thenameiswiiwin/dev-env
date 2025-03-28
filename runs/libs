@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Core utility libraries installation
 
 set -euo pipefail
 
@@ -14,10 +15,10 @@ main() {
   # Initialize either Homebrew or set ARM Linux flag
   init_homebrew
 
-  # Core utilities to install
+  # Core utilities to install - universal packages
   local packages=(
     "git"      # Version control
-    "gh"       # Github
+    "gh"       # Github CLI
     "ripgrep"  # Fast grep alternative
     "wget"     # File downloader
     "jq"       # JSON processor
@@ -28,20 +29,28 @@ main() {
   )
 
   # OS-specific packages
-  if [[ "$OS" == "Linux" ]]; then
+  if [[ "$OS" = "Linux" ]]; then
     packages+=("xclip") # Clipboard utility for Linux
-  elif [[ "$OS" == "Darwin" ]]; then
+  elif [[ "$OS" = "Darwin" ]]; then
     packages+=("coreutils") # GNU core utilities
     packages+=("findutils") # GNU find utilities
     packages+=("gnu-sed")   # GNU sed
     packages+=("grep")      # GNU grep
   fi
 
-  # Install each package
+  # Install each package with appropriate method
   for package in "${packages[@]}"; do
     log "INFO" "Installing $package"
     install_package "$package" || {
-      log "WARN" "Failed to install $package with package manager"
+      log "WARN" "Failed to install $package, trying alternative methods"
+
+      # Try system-specific package managers
+      if [[ "$IS_ARM_LINUX" -eq 1 || "$IS_ARM_CPU" -eq 1 ]]; then
+        log "INFO" "Trying system package manager for $package"
+        install_with_system_package_manager "$package"
+      else
+        log "WARN" "Could not install $package with any available method"
+      fi
     }
   done
 
@@ -60,7 +69,7 @@ main() {
   if command_exists fzf; then
     log "INFO" "Setting up fzf key bindings and completion"
 
-    if [[ "$IS_ARM" -eq 1 && "$OS" == "Linux" ]]; then
+    if [[ "$IS_ARM_LINUX" -eq 1 ]]; then
       # For ARM Linux, check if fzf completion files are in standard locations
       if [[ -f "/usr/share/fzf/key-bindings.bash" ]]; then
         log "INFO" "Found fzf key bindings in system location"
@@ -68,10 +77,11 @@ main() {
         log "INFO" "Installing fzf completion files from GitHub"
         if [[ ${DRY_RUN:-0} -eq 0 ]]; then
           mkdir -p ~/.fzf
-          curl -fLo ~/.fzf/key-bindings.bash https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.bash
-          curl -fLo ~/.fzf/completion.bash https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.bash
-          curl -fLo ~/.fzf/key-bindings.zsh https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.zsh
-          curl -fLo ~/.fzf/completion.zsh https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.zsh
+          # Download latest fzf shell integration files
+          curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.bash -o ~/.fzf/key-bindings.bash
+          curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.bash -o ~/.fzf/completion.bash
+          curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.zsh -o ~/.fzf/key-bindings.zsh
+          curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.zsh -o ~/.fzf/completion.zsh
         else
           log "DRY" "Would download fzf completion files from GitHub"
         fi
@@ -88,6 +98,7 @@ main() {
       if [[ -n "${fzf_base:-}" ]]; then
         if [[ -f "$fzf_base/install" ]]; then
           if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+            # Install fzf key bindings and completion, no shell-specific config
             "$fzf_base/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
           else
             log "DRY" "Would install fzf key bindings and completion"

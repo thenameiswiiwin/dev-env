@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tmux installation and configuration
 
 set -euo pipefail
 
@@ -14,43 +15,39 @@ main() {
   init_homebrew
 
   log "INFO" "Installing tmux"
-  install_package "tmux" || {
+  if ! install_package "tmux"; then
     log "WARN" "Failed to install tmux with Homebrew, trying system package manager"
 
-    if [[ "$OS" == "Linux" ]]; then
-      install_with_system_package_manager "tmux" || {
+    if [[ "$OS" = "Linux" ]]; then
+      if ! install_with_system_package_manager "tmux"; then
         log "ERROR" "Failed to install tmux with system package manager"
 
-        # Build from source as a last resort
+        # Build from source as a last resort - handles ARM and other architectures
         log "INFO" "Trying to build tmux from source"
 
-        # Check and install dependencies
-        dependencies=("libevent-dev" "libncurses-dev" "build-essential")
+        # Check and install dependencies based on distribution
+        local dependencies
+        if command_exists apt; then
+          dependencies=("libevent-dev" "libncurses-dev" "build-essential")
+        elif command_exists pacman; then
+          dependencies=("libevent" "ncurses" "base-devel")
+        elif command_exists apk; then
+          dependencies=("libevent-dev" "ncurses-dev" "build-base")
+        else
+          # Default dependencies for unknown distributions
+          dependencies=("libevent-dev" "libncurses-dev" "make" "gcc")
+        fi
+
+        # Install build dependencies
         for dep in "${dependencies[@]}"; do
-          if command_exists apt; then
-            execute "sudo apt install -y $dep" "Installing dependency: $dep"
-          elif command_exists pacman; then
-            # Map apt package names to pacman equivalents
-            case "$dep" in
-            "libevent-dev") pacman_dep="libevent" ;;
-            "libncurses-dev") pacman_dep="ncurses" ;;
-            "build-essential") pacman_dep="base-devel" ;;
-            *) pacman_dep="$dep" ;;
-            esac
-            execute "sudo pacman -S --noconfirm $pacman_dep" "Installing dependency: $pacman_dep"
-          elif command_exists apk; then
-            # Map apt package names to apk equivalents
-            case "$dep" in
-            "libevent-dev") apk_dep="libevent-dev" ;;
-            "libncurses-dev") apk_dep="ncurses-dev" ;;
-            "build-essential") apk_dep="build-base" ;;
-            *) apk_dep="$dep" ;;
-            esac
-            execute "sudo apk add $apk_dep" "Installing dependency: $apk_dep"
-          fi
+          local mapped_pkg
+          mapped_pkg=$(map_package_name "$dep" "$(get_system_package_manager)")
+          install_with_system_package_manager "$mapped_pkg" || log "WARN" "Failed to install $mapped_pkg"
         done
 
+        # Build tmux from source
         if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+          local tmp_dir
           tmp_dir=$(mktemp -d)
           log "INFO" "Created temporary directory: $tmp_dir"
 
@@ -61,11 +58,14 @@ main() {
         else
           log "DRY" "Would build and install tmux from source"
         fi
-      }
+      fi
+    else
+      log "ERROR" "Failed to install tmux on non-Linux system"
+      return 1
     fi
-  }
+  fi
 
-  # Install tmux plugin manager (TPM)
+  # Install tmux plugin manager (TPM) with architecture awareness
   tmux_plugin_dir="$HOME/.tmux/plugins/tpm"
   log "INFO" "Installing tmux plugin manager"
 
@@ -100,7 +100,14 @@ main() {
     tmux_version=$(tmux -V)
     log "INFO" "tmux installed successfully: $tmux_version"
   else
-    log "WARN" "tmux installation could not be verified"
+    # Check for installed but not in PATH
+    if [[ -x "/usr/local/bin/tmux" ]]; then
+      tmux_version=$("/usr/local/bin/tmux" -V)
+      log "INFO" "tmux installed but not in PATH: $tmux_version"
+      log "INFO" "You may need to add /usr/local/bin to your PATH"
+    else
+      log "WARN" "tmux installation could not be verified"
+    fi
   fi
 
   log "SUCCESS" "tmux setup completed"

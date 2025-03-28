@@ -4,8 +4,10 @@
 
 set -euo pipefail
 
-export DEV_ENV="${DEV_ENV:-$HOME/dev}"
-export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+# Default environment variables
+: "${DEV_ENV:="$HOME/dev"}"
+: "${XDG_CONFIG_HOME:="$HOME/.config"}"
+export DEV_ENV XDG_CONFIG_HOME
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/utilities" 2>/dev/null; then
@@ -13,16 +15,19 @@ if ! source "$script_dir/utilities" 2>/dev/null; then
   exit 1
 fi
 
-if [[ "${1:-}" == "--dry" ]]; then
+# Process command line arguments
+if [[ "${1:-}" = "--dry" ]]; then
   export DRY_RUN=1
 fi
 
+# Verify environment
 if ! check_required_env "DEV_ENV" "XDG_CONFIG_HOME"; then
   exit 1
 fi
 
 log "INFO" "Environment: $DEV_ENV"
 
+# Update files from source to destination directory
 update_files() {
   local source_dir="$1"
   local dest_dir="$2"
@@ -39,31 +44,39 @@ update_files() {
     execute "mkdir -p \"$dest_dir\"" "Creating directory"
   fi
 
+  # Change to source directory to get relative paths
   if ! pushd "$source_dir" &>/dev/null; then
     log "ERROR" "Failed to enter directory $source_dir"
     return 1
   fi
 
+  # Find config directories (depth 1 only)
+  local configs
   configs=$(find . -mindepth 1 -maxdepth 1 -type d)
 
+  # Process each config directory
   for config in $configs; do
     config_name="${config#./}"
     destination="${dest_dir%/}/${config_name}"
 
     log "INFO" "Processing: $config_name"
 
+    # Backup and remove existing directory
     if [[ -d "$destination" ]]; then
       backup_directory "$destination"
       execute "rm -rf \"$destination\"" "Removing existing directory"
     fi
 
+    # Copy directory
     execute "cp -r \"$config_name\" \"$dest_dir\"" "Copying directory"
   done
 
+  # Return to original directory
   popd &>/dev/null || log "WARN" "Failed to return from directory $source_dir"
   return 0
 }
 
+# Copy a single file with backup
 copy_file() {
   local source="$1"
   local destination="$2"
@@ -73,6 +86,7 @@ copy_file() {
     return 1
   fi
 
+  # Create destination directory if needed
   local dest_dir
   dest_dir=$(dirname "$destination")
   if [[ ! -d "$dest_dir" ]]; then
@@ -80,11 +94,13 @@ copy_file() {
     execute "mkdir -p \"$dest_dir\"" "Creating directory"
   fi
 
+  # Backup and remove existing file
   if [[ -f "$destination" ]]; then
     backup_file "$destination"
     execute "rm \"$destination\"" "Removing existing file"
   fi
 
+  # Copy file
   execute "cp \"$source\" \"$destination\"" "Copying file"
 
   return 0
@@ -94,7 +110,7 @@ copy_file() {
 update_files "$DEV_ENV/env/.config" "$XDG_CONFIG_HOME"
 update_files "$DEV_ENV/env/.local" "$HOME/.local"
 
-# Create zsh directory structure if it doesn't exist
+# Create zsh directory structure
 execute "mkdir -p \"$HOME/.zsh\"" "Creating zsh directory structure"
 
 # Copy individual files
@@ -105,10 +121,10 @@ copy_file "$DEV_ENV/env/.zshenv" "$HOME/.zshenv"
 copy_file "$DEV_ENV/env/.xprofile" "$HOME/.xprofile"
 copy_file "$DEV_ENV/env/.tmux-sessionizer" "$HOME/.tmux-sessionizer"
 
-# Create bin directory if it doesn't exist
+# Create bin directory
 execute "mkdir -p \"$HOME/.local/bin\"" "Creating local bin directory"
 
-# Make sure scripts are executable
+# Make scripts executable
 if [[ -d "$HOME/.local/bin" ]]; then
   execute "find \"$HOME/.local/bin\" -type f -exec chmod +x {} \\;" "Making scripts executable"
 fi

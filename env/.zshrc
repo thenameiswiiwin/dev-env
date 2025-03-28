@@ -1,5 +1,6 @@
 # Oh My Zsh installation path
 export ZSH="$HOME/.oh-my-zsh"
+export TMUX_THEME=dawn
 
 # Theme selection
 ZSH_THEME="amuse"
