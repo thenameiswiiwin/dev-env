@@ -18,8 +18,8 @@ readonly ARCH
 
 # Architecture detection
 # Use explicit flag for ARM detection (better than string comparison)
-IS_ARM_CPU=$([ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ] && echo 1 || echo 0)
-IS_ARM_LINUX=$([ "$IS_ARM_CPU" -eq 1 ] && [ "$OS" = "Linux" ] && echo 1 || echo 0)
+IS_ARM_CPU=$([ "$ARCH" == "arm64" ] || [ "$ARCH" == "aarch64" ] && echo 1 || echo 0)
+IS_ARM_LINUX=$([ "$IS_ARM_CPU" -eq 1 ] && [ "$OS" == "Linux" ] && echo 1 || echo 0)
 readonly IS_ARM_CPU
 readonly IS_ARM_LINUX
 
@@ -79,7 +79,7 @@ brew_installed() {
 # Homebrew cask check for macOS
 # Usage: cask_installed "visual-studio-code"
 cask_installed() {
-  if command_exists brew && [[ "$OS" = "Darwin" ]]; then
+  if command_exists brew && [[ "$OS" == "Darwin" ]]; then
     if brew list --cask 2>/dev/null | grep -q "^$1\$"; then
       return 0
     fi
@@ -108,6 +108,34 @@ execute() {
   fi
 }
 
+# Safe curl execution with proper error handling
+# Usage: safe_curl "url" "output_file" "description"
+safe_curl() {
+  local url="$1"
+  local output="${2:-}"
+  local description="${3:-Downloading from $url}"
+  local curl_opts="-fsSL --connect-timeout 15 --retry 3"
+
+  if [[ -n "$output" ]]; then
+    curl_opts="$curl_opts -o $output"
+  fi
+
+  log "INFO" "$description"
+
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would run: curl $curl_opts $url"
+    return 0
+  else
+    if curl $curl_opts "$url"; then
+      return 0
+    else
+      local exit_code=$?
+      log "ERROR" "curl failed with exit code $exit_code: $url"
+      return $exit_code
+    fi
+  fi
+}
+
 # Homebrew initialization based on platform
 init_homebrew() {
   # Skip Homebrew on ARM Linux - use system packages
@@ -117,14 +145,14 @@ init_homebrew() {
   fi
 
   # Platform-specific initialization
-  if [[ "$OS" = "Darwin" ]]; then
+  if [[ "$OS" == "Darwin" ]]; then
     # macOS - handle ARM vs Intel
-    if [[ "$ARCH" = "arm64" && -f /opt/homebrew/bin/brew ]]; then
+    if [[ "$ARCH" == "arm64" && -f /opt/homebrew/bin/brew ]]; then
       eval "$(/opt/homebrew/bin/brew shellenv)"
     elif [[ -f /usr/local/bin/brew ]]; then
       eval "$(/usr/local/bin/brew shellenv)"
     fi
-  elif [[ "$OS" = "Linux" ]]; then
+  elif [[ "$OS" == "Linux" ]]; then
     # Linux Homebrew locations
     if [[ -d "$HOME/.linuxbrew" ]]; then
       eval "$("$HOME"/.linuxbrew/bin/brew shellenv)"
@@ -206,7 +234,7 @@ install_package() {
   fi
 
   # Skip if already installed
-  if [[ "$skip_if_installed" = true ]] && brew_installed "$package"; then
+  if [[ "$skip_if_installed" == true ]] && brew_installed "$package"; then
     log "INFO" "$package is already installed, skipping"
     return 0
   fi
@@ -216,7 +244,7 @@ install_package() {
   if brew install "$package" 2>/dev/null; then
     log "INFO" "$package installed successfully with Homebrew"
     return 0
-  elif [[ "$OS" = "Linux" ]]; then
+  elif [[ "$OS" == "Linux" ]]; then
     # Fallback to system package manager on Linux
     log "WARN" "Homebrew installation failed, trying system package manager"
     install_with_system_package_manager "$package"
@@ -238,7 +266,7 @@ install_cask() {
     return 0
   fi
 
-  if [[ "$skip_if_installed" = true ]] && cask_installed "$package"; then
+  if [[ "$skip_if_installed" == true ]] && cask_installed "$package"; then
     log "INFO" "$package is already installed, skipping"
     return 0
   fi
@@ -265,6 +293,30 @@ check_required_env() {
   fi
 
   return 0
+}
+
+# Check if running in interactive mode
+# Usage: is_interactive
+is_interactive() {
+  [[ -t 0 ]]
+}
+
+# Interactive prompt with fallback for non-interactive mode
+# Usage: prompt "Question?" "default_answer"
+prompt() {
+  local question="$1"
+  local default="${2:-n}"
+  local response=""
+
+  if is_interactive; then
+    read -r -p "$question [${default}]: " response
+    response="${response:-$default}"
+  else
+    log "INFO" "Non-interactive mode detected, using default: $default"
+    response="$default"
+  fi
+
+  echo "$response"
 }
 
 # Generate consistent backup timestamp
@@ -408,8 +460,7 @@ ensure_line_in_file() {
   fi
 
   echo "$line" >>"$file"
-  local exit_code
-  exit_code=$?
+  local exit_code=$?
 
   if [ $exit_code -eq 0 ]; then
     log "INFO" "Added line to $file"
@@ -433,7 +484,7 @@ configure_zsh_plugins() {
   backup_file "$zshrc"
 
   # Avoid unbound variable warnings
-  FPATH="${FPATH:-}"
+  local FPATH="${FPATH:-}"
 
   # Platform-aware path detection for Zsh plugins
   local autosuggestions_paths=(
@@ -469,7 +520,7 @@ configure_zsh_plugins() {
   done
 
   # Homebrew completions for non-ARM systems
-  if command_exists brew && [[ "$IS_ARM_CPU" -eq 0 || "$OS" = "Darwin" ]]; then
+  if command_exists brew && [[ "$IS_ARM_CPU" -eq 0 || "$OS" == "Darwin" ]]; then
     local completions_script="
 # Zsh Completions
 if type brew &>/dev/null; then
@@ -538,7 +589,7 @@ create_symlink() {
     if target=$(readlink -f "$destination" 2>/dev/null || readlink "$destination"); then
       local source_path
       source_path=$(readlink -f "$source" 2>/dev/null || echo "$source")
-      if [[ "$target" = "$source_path" ]]; then
+      if [[ "$target" == "$source_path" ]]; then
         log "INFO" "Symlink already correct: $destination -> $source"
         return 0
       fi
@@ -606,6 +657,7 @@ map_package_name() {
     "libevent-dev") echo "libevent" ;;
     "libncurses-dev") echo "ncurses" ;;
     "python3-dev") echo "python-dev" ;;
+    "fd") echo "fd" ;;
     *) echo "$package" ;;
     esac
     ;;
@@ -615,12 +667,20 @@ map_package_name() {
     "libevent-dev") echo "libevent-dev" ;;
     "libncurses-dev") echo "ncurses-dev" ;;
     "python3-dev") echo "python3-dev" ;;
+    "fd") echo "fd" ;;
     *) echo "$package" ;;
     esac
     ;;
   "dnf" | "yum")
     case "$package" in
     "build-essential") echo "gcc gcc-c++ make" ;;
+    "fd") echo "fd-find" ;;
+    *) echo "$package" ;;
+    esac
+    ;;
+  "apt")
+    case "$package" in
+    "fd") echo "fd-find" ;;
     *) echo "$package" ;;
     esac
     ;;

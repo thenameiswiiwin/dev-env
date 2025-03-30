@@ -29,17 +29,41 @@ main() {
   )
 
   # OS-specific packages
-  if [[ "$OS" = "Linux" ]]; then
+  if [[ "$OS" == "Linux" ]]; then
     packages+=("xclip") # Clipboard utility for Linux
-  elif [[ "$OS" = "Darwin" ]]; then
+  elif [[ "$OS" == "Darwin" ]]; then
     packages+=("coreutils") # GNU core utilities
     packages+=("findutils") # GNU find utilities
     packages+=("gnu-sed")   # GNU sed
     packages+=("grep")      # GNU grep
   fi
 
+  # Flag to track if fd-find needs special handling
+  local fd_find_installed=0
+
   # Install each package with appropriate method
   for package in "${packages[@]}"; do
+    # Special handling for fd on Debian-based systems
+    if [[ "$package" == "fd" ]] && [[ "$OS" == "Linux" ]] && (command_exists apt || command_exists apt-get); then
+      log "INFO" "Debian-based system detected, installing fd-find instead of fd"
+      
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        # Try installing fd-find with apt
+        if command_exists apt; then
+          sudo apt-get update >/dev/null 2>&1
+          if sudo apt-get install -y fd-find; then
+            fd_find_installed=1
+            log "INFO" "fd-find installed successfully"
+            continue
+          fi
+        fi
+      else
+        log "DRY" "Would install fd-find instead of fd on Debian-based systems"
+        fd_find_installed=1
+        continue
+      fi
+    fi
+
     log "INFO" "Installing $package"
     install_package "$package" || {
       log "WARN" "Failed to install $package, trying alternative methods"
@@ -54,9 +78,58 @@ main() {
     }
   done
 
+  # Handle symlink creation for fd-find on Debian-based systems
+  if [[ $fd_find_installed -eq 1 ]]; then
+    log "INFO" "Creating symlink from fdfind to fd"
+    
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      # Create ~/.local/bin directory if it doesn't exist
+      local local_bin="$HOME/.local/bin"
+      mkdir -p "$local_bin"
+      
+      # Check if fdfind exists and fd doesn't
+      if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
+        local fdfind_path
+        fdfind_path=$(command -v fdfind)
+        
+        if ln -sf "$fdfind_path" "$local_bin/fd"; then
+          log "SUCCESS" "Created symlink from $fdfind_path to $local_bin/fd"
+          
+          # Ensure ~/.local/bin is in PATH for current session
+          if [[ ":$PATH:" != *":$local_bin:"* ]]; then
+            export PATH="$PATH:$local_bin"
+            log "INFO" "Added $local_bin to PATH for current session"
+            
+            # Add PATH entry to profile files if not already present
+            for profile_file in "$HOME/.bash_profile" "$HOME/.zprofile" "$HOME/.profile"; do
+              if [[ -f "$profile_file" ]] && ! grep -q "$local_bin" "$profile_file"; then
+                log "INFO" "Adding $local_bin to PATH in $profile_file"
+                echo "export PATH=\"\$PATH:$local_bin\"" >> "$profile_file"
+              fi
+            done
+          fi
+        else
+          log "WARN" "Failed to create symlink from $fdfind_path to $local_bin/fd"
+        fi
+      fi
+    else
+      log "DRY" "Would create symlink from fdfind to fd in ~/.local/bin"
+    fi
+  fi
+
   # Verify installations
   log "INFO" "Verifying installations"
   for package in "${packages[@]}"; do
+    # Special case for fd on Debian systems
+    if [[ "$package" == "fd" ]] && [[ $fd_find_installed -eq 1 ]]; then
+      if command -v fd || [[ -f "$HOME/.local/bin/fd" ]]; then
+        log "INFO" "fd (via fd-find) is installed"
+      else
+        log "WARN" "fd (via fd-find) installation could not be verified"
+      fi
+      continue
+    }
+    
     # Use a more flexible check for packages on ARM Linux
     if command_exists "$package" || brew_installed "$package"; then
       log "INFO" "$package is installed"
@@ -77,11 +150,11 @@ main() {
         log "INFO" "Installing fzf completion files from GitHub"
         if [[ ${DRY_RUN:-0} -eq 0 ]]; then
           mkdir -p ~/.fzf
-          # Download latest fzf shell integration files
-          curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.bash -o ~/.fzf/key-bindings.bash
-          curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.bash -o ~/.fzf/completion.bash
-          curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.zsh -o ~/.fzf/key-bindings.zsh
-          curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.zsh -o ~/.fzf/completion.zsh
+          # Download latest fzf shell integration files with proper error handling
+          safe_curl "https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.bash" "$HOME/.fzf/key-bindings.bash" "Downloading fzf key bindings for bash"
+          safe_curl "https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.bash" "$HOME/.fzf/completion.bash" "Downloading fzf completion for bash"
+          safe_curl "https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.zsh" "$HOME/.fzf/key-bindings.zsh" "Downloading fzf key bindings for zsh"
+          safe_curl "https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.zsh" "$HOME/.fzf/completion.zsh" "Downloading fzf completion for zsh"
         else
           log "DRY" "Would download fzf completion files from GitHub"
         fi

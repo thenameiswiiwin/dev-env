@@ -22,7 +22,7 @@ export REPO_BRANCH="main"
 
 # Process command-line arguments
 dry_run=0
-if [[ "${1:-}" = "--dry" ]]; then
+if [[ "${1:-}" == "--dry" ]]; then
   dry_run=1
   export DRY_RUN=1
 fi
@@ -36,10 +36,14 @@ readonly COLOR_CYAN="\033[1;36m"
 readonly COLOR_RESET="\033[0m"
 
 # System detection with explicit exports
-readonly OS="$(uname -s)"
-readonly ARCH="$(uname -m)"
-readonly IS_ARM_CPU=$([ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ] && echo 1 || echo 0)
-readonly IS_ARM_LINUX=$([ "$IS_ARM_CPU" -eq 1 ] && [ "$OS" = "Linux" ] && echo 1 || echo 0)
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+IS_ARM_CPU=$([ "$ARCH" == "arm64" ] || [ "$ARCH" == "aarch64" ] && echo 1 || echo 0)
+IS_ARM_LINUX=$([ "$IS_ARM_CPU" -eq 1 ] && [ "$OS" == "Linux" ] && echo 1 || echo 0)
+readonly OS
+readonly ARCH
+readonly IS_ARM_CPU
+readonly IS_ARM_LINUX
 
 # Logging function
 log() {
@@ -88,6 +92,38 @@ execute() {
   fi
 }
 
+# Safe curl execution with proper error handling
+safe_curl() {
+  local url="$1"
+  local output="${2:-}"
+  local description="${3:-Downloading from $url}"
+  local curl_opts="-fsSL --connect-timeout 15 --retry 3"
+
+  if [[ -n "$output" ]]; then
+    curl_opts="$curl_opts -o $output"
+  fi
+
+  log "INFO" "$description"
+
+  if [[ $dry_run -eq 1 ]]; then
+    log "DRY" "Would run: curl $curl_opts $url"
+    return 0
+  else
+    if curl $curl_opts "$url"; then
+      return 0
+    else
+      local exit_code=$?
+      log "ERROR" "curl failed with exit code $exit_code: $url"
+      return $exit_code
+    fi
+  fi
+}
+
+# Check if running in interactive mode
+is_interactive() {
+  [[ -t 0 ]]
+}
+
 # Initialize Homebrew with platform detection
 init_homebrew() {
   # Skip for ARM Linux
@@ -97,14 +133,14 @@ init_homebrew() {
   fi
 
   # Platform-specific initialization
-  if [[ "$OS" = "Darwin" ]]; then
+  if [[ "$OS" == "Darwin" ]]; then
     # macOS - handle ARM vs Intel
-    if [[ "$ARCH" = "arm64" && -f /opt/homebrew/bin/brew ]]; then
+    if [[ "$ARCH" == "arm64" && -f /opt/homebrew/bin/brew ]]; then
       eval "$(/opt/homebrew/bin/brew shellenv)"
     elif [[ -f /usr/local/bin/brew ]]; then
       eval "$(/usr/local/bin/brew shellenv)"
     fi
-  elif [[ "$OS" = "Linux" ]]; then
+  elif [[ "$OS" == "Linux" ]]; then
     # Linux Homebrew locations
     if [[ -d "$HOME/.linuxbrew" ]]; then
       eval "$("$HOME"/.linuxbrew/bin/brew shellenv)"
@@ -124,13 +160,13 @@ ensure_homebrew_in_path() {
   local brew_bin=""
 
   # Platform-specific Homebrew paths
-  if [[ "$OS" = "Darwin" ]]; then
-    if [[ "$ARCH" = "arm64" && -f /opt/homebrew/bin/brew ]]; then
+  if [[ "$OS" == "Darwin" ]]; then
+    if [[ "$ARCH" == "arm64" && -f /opt/homebrew/bin/brew ]]; then
       brew_bin="/opt/homebrew/bin"
     elif [[ -f /usr/local/bin/brew ]]; then
       brew_bin="/usr/local/bin"
     fi
-  elif [[ "$OS" = "Linux" ]]; then
+  elif [[ "$OS" == "Linux" ]]; then
     if [[ -d "$HOME/.linuxbrew" ]]; then
       brew_bin="$HOME/.linuxbrew/bin"
     elif [[ -d "/home/linuxbrew/.linuxbrew" ]]; then
@@ -155,12 +191,16 @@ install_homebrew() {
 
   log "INFO" "Installing Homebrew..."
   if [[ $dry_run -eq 0 ]]; then
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || {
+    safe_curl "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh" "/tmp/homebrew-install.sh" "Downloading Homebrew installer" || {
+      log "ERROR" "Failed to download Homebrew installer"
+      return 1
+    }
+    bash /tmp/homebrew-install.sh || {
       log "ERROR" "Failed to install Homebrew"
       log "INFO" "Trying alternative installation method..."
 
       # For Linux systems that might need dependencies
-      if [[ "$OS" = "Linux" ]]; then
+      if [[ "$OS" == "Linux" ]]; then
         log "INFO" "Installing dependencies for Homebrew..."
 
         if command_exists apt; then
@@ -172,7 +212,7 @@ install_homebrew() {
         fi
 
         # Try installation again
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || {
+        bash /tmp/homebrew-install.sh || {
           log "ERROR" "Failed to install Homebrew again"
           return 1
         }
@@ -180,6 +220,9 @@ install_homebrew() {
         return 1
       fi
     }
+
+    # Clean up installer
+    rm -f /tmp/homebrew-install.sh
   else
     log "DRY" "Would install Homebrew"
   fi
@@ -189,7 +232,7 @@ install_homebrew() {
 
 # Install Bash 4 or newer with Homebrew
 install_modern_bash() {
-  if ! command_exists bash || [[ $OS = "Darwin" ]]; then
+  if ! command_exists bash || [[ $OS == "Darwin" ]]; then
     local bash_version
     bash_version=$(bash --version | head -n1 | cut -d' ' -f4 | cut -d'.' -f1)
 
@@ -387,7 +430,7 @@ setup() {
   echo ""
 
   # Display Bash version information if upgraded
-  if [[ "$OS" = "Darwin" ]]; then
+  if [[ "$OS" == "Darwin" ]]; then
     local brew_bash
     brew_bash="$(brew --prefix 2>/dev/null)/bin/bash"
     if [[ -f "$brew_bash" ]]; then
