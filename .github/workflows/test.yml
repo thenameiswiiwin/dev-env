@@ -48,10 +48,8 @@ jobs:
           source ./utilities
           command_exists bash
 
-          # Test ARM detection functions
+          # Test architecture detection functions
           echo "Testing architecture detection..."
-          OS="$(uname -s)"
-          ARCH="$(uname -m)"
           echo "OS: $OS, ARCH: $ARCH"
           echo "IS_ARM_CPU: $IS_ARM_CPU"
           echo "IS_ARM_LINUX: $IS_ARM_LINUX"
@@ -90,17 +88,31 @@ jobs:
         run: |
           echo "Installing Bash 5.x..."
           brew install bash
-          /usr/local/bin/bash --version | head -n1
+          # Determine proper Homebrew Bash path based on architecture
+          if [[ -f /opt/homebrew/bin/bash ]]; then
+            # ARM Mac (Apple Silicon)
+            BREW_BASH="/opt/homebrew/bin/bash"
+          elif [[ -f /usr/local/bin/bash ]]; then
+            # Intel Mac
+            BREW_BASH="/usr/local/bin/bash"
+          else
+            echo "::error::Could not find Homebrew Bash installation"
+            exit 1
+          fi
+
+          echo "Using Homebrew Bash at: $BREW_BASH"
+          $BREW_BASH --version | head -n1
+
           # Verify Bash version meets requirements
-          BASH_VERSION=$(/usr/local/bin/bash --version | head -n1 | cut -d' ' -f4 | cut -d'.' -f1)
+          BASH_VERSION=$($BREW_BASH --version | head -n1 | cut -d' ' -f4 | cut -d'.' -f1)
           if [[ $BASH_VERSION -lt 4 ]]; then
             echo "::error::Bash version is too old: $BASH_VERSION. Requires 4.0+"
             exit 1
           fi
+
           echo "Bash $BASH_VERSION installed successfully"
-          # Make the new Bash available as 'bash'
-          sudo ln -sf /usr/local/bin/bash /usr/local/bin/bash4
-          echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
+          # Add Homebrew's bash to the PATH
+          echo "PATH=$(dirname $BREW_BASH):$PATH" >> $GITHUB_ENV
 
       - name: Set up environment
         run: |
@@ -117,19 +129,17 @@ jobs:
           source ./utilities
           command_exists bash
 
-          # Test ARM detection functions for Apple Silicon simulation
-          echo "Testing architecture detection with simulated ARM..."
-          # Simulate ARM detection for testing
-          ARCH="arm64"
-          IS_ARM_CPU=1
-          echo "Simulated ARCH: $ARCH"
-          echo "Simulated IS_ARM_CPU: $IS_ARM_CPU"
+          # Test ARM detection functions without modifying read-only variables
+          echo "Testing architecture detection..."
+          echo "Current OS: $OS, ARCH: $ARCH"
+          echo "Current IS_ARM_CPU: $IS_ARM_CPU"
 
-          # Test platform-specific code paths
-          if [[ "$IS_ARM_CPU" -eq 1 ]]; then
-            echo "ARM CPU detection is working"
+          # Test platform-specific code paths without modifying OS/ARCH
+          echo "Testing ARM detection logic..."
+          if [[ "$ARCH" == "arm64" || "$IS_ARM_CPU" -eq 1 ]]; then
+            echo "Running on ARM architecture"
           else
-            echo "ARM CPU detection failed"
+            echo "Running on x86 architecture"
           fi
 
       - name: Test dry run mode
@@ -168,31 +178,16 @@ jobs:
           cd $HOME/dev
           echo "Checking for inconsistent equality operators..."
           # Look for string comparisons with = instead of ==
-          grep -r "\[ \"\$[A-Za-z0-9_]*\" = " --include="*.sh" --include="run*" --include="utilities" .
-          if [ $? -eq 0 ]; then
-            echo "::warning::Found potential inconsistent equality operators (using = instead of ==)"
-          else
-            echo "No inconsistent equality operators found (good!)"
-          fi
+          grep -r "\[ \"\$[A-Za-z0-9_]*\" = " --include="*.sh" --include="run*" --include="utilities" . || echo "No inconsistent equality operators found (good!)"
 
       - name: Test curl commands
         run: |
           cd $HOME/dev
           echo "Checking for curl commands without error handling..."
-          grep -r "curl " --include="*.sh" --include="run*" --include="utilities" . | grep -v "safe_curl" | grep -v "if.*curl"
-          if [ $? -eq 0 ]; then
-            echo "::warning::Found potential curl commands without proper error handling"
-          else
-            echo "All curl commands appear to use proper error handling"
-          fi
+          grep -r "curl " --include="*.sh" --include="run*" --include="utilities" . | grep -v "safe_curl" | grep -v "if.*curl" || echo "All curl commands appear to use proper error handling"
 
       - name: Verify sourcing protections
         run: |
           cd $HOME/dev
           echo "Checking for proper source handling..."
-          grep -r "source " --include="*.sh" --include="run*" --include="utilities" . | grep -v "|| {"
-          if [ $? -eq 0 ]; then
-            echo "::warning::Found potential unprotected source commands"
-          else
-            echo "All source commands appear to have proper error handling"
-          fi
+          grep -r "source " --include="*.sh" --include="run*" --include="utilities" . | grep -v "|| {" || echo "All source commands appear to have proper error handling"
