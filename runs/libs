@@ -46,7 +46,7 @@ main() {
     # Special handling for fd on Debian-based systems
     if [[ "$package" == "fd" ]] && [[ "$OS" == "Linux" ]] && (command_exists apt || command_exists apt-get); then
       log "INFO" "Debian-based system detected, installing fd-find instead of fd"
-      
+
       if [[ ${DRY_RUN:-0} -eq 0 ]]; then
         # Try installing fd-find with apt
         if command_exists apt; then
@@ -81,30 +81,30 @@ main() {
   # Handle symlink creation for fd-find on Debian-based systems
   if [[ $fd_find_installed -eq 1 ]]; then
     log "INFO" "Creating symlink from fdfind to fd"
-    
+
     if [[ ${DRY_RUN:-0} -eq 0 ]]; then
       # Create ~/.local/bin directory if it doesn't exist
       local local_bin="$HOME/.local/bin"
       mkdir -p "$local_bin"
-      
+
       # Check if fdfind exists and fd doesn't
       if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
         local fdfind_path
         fdfind_path=$(command -v fdfind)
-        
+
         if ln -sf "$fdfind_path" "$local_bin/fd"; then
           log "SUCCESS" "Created symlink from $fdfind_path to $local_bin/fd"
-          
+
           # Ensure ~/.local/bin is in PATH for current session
           if [[ ":$PATH:" != *":$local_bin:"* ]]; then
             export PATH="$PATH:$local_bin"
             log "INFO" "Added $local_bin to PATH for current session"
-            
+
             # Add PATH entry to profile files if not already present
             for profile_file in "$HOME/.bash_profile" "$HOME/.zprofile" "$HOME/.profile"; do
               if [[ -f "$profile_file" ]] && ! grep -q "$local_bin" "$profile_file"; then
                 log "INFO" "Adding $local_bin to PATH in $profile_file"
-                echo "export PATH=\"\$PATH:$local_bin\"" >> "$profile_file"
+                echo "export PATH=\"\$PATH:$local_bin\"" >>"$profile_file"
               fi
             done
           fi
@@ -128,8 +128,8 @@ main() {
         log "WARN" "fd (via fd-find) installation could not be verified"
       fi
       continue
-    }
-    
+    fi
+
     # Use a more flexible check for packages on ARM Linux
     if command_exists "$package" || brew_installed "$package"; then
       log "INFO" "$package is installed"
