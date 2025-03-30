@@ -301,6 +301,12 @@ Contributions are welcome! To contribute:
 6. Push to the branch (`git push origin feature/new-tool`)
 7. Create a new Pull Request
 
+## 🙏 Acknowledgements
+
+This project is inspired by and borrows concepts from:
+
+- [ThePrimeagen](https://github.com/ThePrimeagen) - For pioneering developer workflow, tmux-sessionizer concept.
+
 ## 📝 License
 
 Copyright (c) 2025 Huy Nguyen
