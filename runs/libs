@@ -1,96 +1,200 @@
 #!/usr/bin/env bash
+# Core utility libraries installation
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 main() {
-    log "INFO" "Starting libs setup"
+  log "INFO" "Starting libs setup"
 
-    init_homebrew
+  # Initialize either Homebrew or set ARM Linux flag
+  init_homebrew
 
-    # Core utilities to install
-    local packages=(
-        "git"      # Version control
-        "gh"       # Github
-        "ripgrep"  # Fast grep alternative
-        "wget"     # File downloader
-        "jq"       # JSON processor
-        "fd"       # Fast find alternative
-        "fzf"      # Fuzzy finder
-        "tree"     # Directory structure visualizer
-        "tealdeer" # TL;DR pages client (simplified man pages)
-    )
+  # Core utilities to install - universal packages
+  local packages=(
+    "git"      # Version control
+    "gh"       # Github CLI
+    "ripgrep"  # Fast grep alternative
+    "wget"     # File downloader
+    "jq"       # JSON processor
+    "fd"       # Fast find alternative
+    "fzf"      # Fuzzy finder
+    "tree"     # Directory structure visualizer
+    "tealdeer" # TL;DR pages client (simplified man pages)
+  )
 
-    # OS-specific packages
-    if [[ "$OS" == "Linux" ]]; then
-        packages+=("xclip") # Clipboard utility for Linux
-    elif [[ "$OS" == "Darwin" ]]; then
-        packages+=("coreutils") # GNU core utilities
-        packages+=("findutils") # GNU find utilities
-        packages+=("gnu-sed")   # GNU sed
-        packages+=("grep")      # GNU grep
+  # OS-specific packages
+  if [[ "$OS" == "Linux" ]]; then
+    packages+=("xclip") # Clipboard utility for Linux
+  elif [[ "$OS" == "Darwin" ]]; then
+    packages+=("coreutils") # GNU core utilities
+    packages+=("findutils") # GNU find utilities
+    packages+=("gnu-sed")   # GNU sed
+    packages+=("grep")      # GNU grep
+  fi
+
+  # Flag to track if fd-find needs special handling
+  local fd_find_installed=0
+
+  # Install each package with appropriate method
+  for package in "${packages[@]}"; do
+    # Special handling for fd on Debian-based systems
+    if [[ "$package" == "fd" ]] && [[ "$OS" == "Linux" ]] && (command_exists apt || command_exists apt-get); then
+      log "INFO" "Debian-based system detected, installing fd-find instead of fd"
+
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        # Try installing fd-find with apt
+        if command_exists apt; then
+          sudo apt-get update >/dev/null 2>&1
+          if sudo apt-get install -y fd-find; then
+            fd_find_installed=1
+            log "INFO" "fd-find installed successfully"
+            continue
+          fi
+        fi
+      else
+        log "DRY" "Would install fd-find instead of fd on Debian-based systems"
+        fd_find_installed=1
+        continue
+      fi
     fi
 
-    # Install each package
-    for package in "${packages[@]}"; do
-        log "INFO" "Installing $package"
-        install_package "$package" || {
-            log "WARN" "Failed to install $package with Homebrew, trying system package manager"
-            install_with_system_package_manager "$package" || log "ERROR" "Failed to install $package"
-        }
-    done
+    log "INFO" "Installing $package"
+    install_package "$package" || {
+      log "WARN" "Failed to install $package, trying alternative methods"
 
-    # Verify installations
-    log "INFO" "Verifying installations"
-    for package in "${packages[@]}"; do
-        if command_exists "$package" || brew_installed "$package"; then
-            log "INFO" "$package is installed"
+      # Try system-specific package managers
+      if [[ "$IS_ARM_LINUX" -eq 1 || "$IS_ARM_CPU" -eq 1 ]]; then
+        log "INFO" "Trying system package manager for $package"
+        install_with_system_package_manager "$package"
+      else
+        log "WARN" "Could not install $package with any available method"
+      fi
+    }
+  done
+
+  # Handle symlink creation for fd-find on Debian-based systems
+  if [[ $fd_find_installed -eq 1 ]]; then
+    log "INFO" "Creating symlink from fdfind to fd"
+
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      # Create ~/.local/bin directory if it doesn't exist
+      local local_bin="$HOME/.local/bin"
+      mkdir -p "$local_bin"
+
+      # Check if fdfind exists and fd doesn't
+      if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
+        local fdfind_path
+        fdfind_path=$(command -v fdfind)
+
+        if ln -sf "$fdfind_path" "$local_bin/fd"; then
+          log "SUCCESS" "Created symlink from $fdfind_path to $local_bin/fd"
+
+          # Ensure ~/.local/bin is in PATH for current session
+          if [[ ":$PATH:" != *":$local_bin:"* ]]; then
+            export PATH="$PATH:$local_bin"
+            log "INFO" "Added $local_bin to PATH for current session"
+
+            # Add PATH entry to profile files if not already present
+            for profile_file in "$HOME/.bash_profile" "$HOME/.zprofile" "$HOME/.profile"; do
+              if [[ -f "$profile_file" ]] && ! grep -q "$local_bin" "$profile_file"; then
+                log "INFO" "Adding $local_bin to PATH in $profile_file"
+                echo "export PATH=\"\$PATH:$local_bin\"" >>"$profile_file"
+              fi
+            done
+          fi
         else
-            log "WARN" "$package installation could not be verified"
+          log "WARN" "Failed to create symlink from $fdfind_path to $local_bin/fd"
         fi
-    done
+      fi
+    else
+      log "DRY" "Would create symlink from fdfind to fd in ~/.local/bin"
+    fi
+  fi
 
-    # Configure fzf
-    if brew_installed "fzf" || command_exists fzf; then
-        log "INFO" "Setting up fzf key bindings and completion"
-        local fzf_base
-
-        if brew_installed "fzf"; then
-            fzf_base="$(brew --prefix)/opt/fzf"
-        elif [[ -d "$HOME/.fzf" ]]; then
-            fzf_base="$HOME/.fzf"
-        fi
-
-        if [[ -n "${fzf_base:-}" ]]; then
-            if [[ -f "$fzf_base/install" ]]; then
-                if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                    "$fzf_base/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
-                else
-                    log "DRY" "Would install fzf key bindings and completion"
-                fi
-            else
-                log "WARN" "fzf install script not found"
-            fi
-        fi
+  # Verify installations
+  log "INFO" "Verifying installations"
+  for package in "${packages[@]}"; do
+    # Special case for fd on Debian systems
+    if [[ "$package" == "fd" ]] && [[ $fd_find_installed -eq 1 ]]; then
+      if command -v fd || [[ -f "$HOME/.local/bin/fd" ]]; then
+        log "INFO" "fd (via fd-find) is installed"
+      else
+        log "WARN" "fd (via fd-find) installation could not be verified"
+      fi
+      continue
     fi
 
-    # Configure tealdeer (tldr)
-    if command_exists tldr; then
-        log "INFO" "Updating tldr pages"
+    # Use a more flexible check for packages on ARM Linux
+    if command_exists "$package" || brew_installed "$package"; then
+      log "INFO" "$package is installed"
+    else
+      log "WARN" "$package installation could not be verified"
+    fi
+  done
+
+  # Configure fzf - adjust for ARM Linux
+  if command_exists fzf; then
+    log "INFO" "Setting up fzf key bindings and completion"
+
+    if [[ "$IS_ARM_LINUX" -eq 1 ]]; then
+      # For ARM Linux, check if fzf completion files are in standard locations
+      if [[ -f "/usr/share/fzf/key-bindings.bash" ]]; then
+        log "INFO" "Found fzf key bindings in system location"
+      else
+        log "INFO" "Installing fzf completion files from GitHub"
         if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-            tldr --update || log "WARN" "Failed to update tldr pages"
+          mkdir -p ~/.fzf
+          # Download latest fzf shell integration files with proper error handling
+          safe_curl "https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.bash" "$HOME/.fzf/key-bindings.bash" "Downloading fzf key bindings for bash"
+          safe_curl "https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.bash" "$HOME/.fzf/completion.bash" "Downloading fzf completion for bash"
+          safe_curl "https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.zsh" "$HOME/.fzf/key-bindings.zsh" "Downloading fzf key bindings for zsh"
+          safe_curl "https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.zsh" "$HOME/.fzf/completion.zsh" "Downloading fzf completion for zsh"
         else
-            log "DRY" "Would update tldr pages"
+          log "DRY" "Would download fzf completion files from GitHub"
         fi
-    fi
+      fi
+    else
+      # For non-ARM systems, use Homebrew's fzf setup
+      local fzf_base
+      if brew_installed "fzf"; then
+        fzf_base="$(brew --prefix)/opt/fzf"
+      elif [[ -d "$HOME/.fzf" ]]; then
+        fzf_base="$HOME/.fzf"
+      fi
 
-    log "SUCCESS" "Libs setup completed"
-    return 0
+      if [[ -n "${fzf_base:-}" ]]; then
+        if [[ -f "$fzf_base/install" ]]; then
+          if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+            # Install fzf key bindings and completion, no shell-specific config
+            "$fzf_base/install" --key-bindings --completion --no-update-rc --no-bash --no-fish
+          else
+            log "DRY" "Would install fzf key bindings and completion"
+          fi
+        else
+          log "WARN" "fzf install script not found"
+        fi
+      fi
+    fi
+  fi
+
+  # Configure tealdeer (tldr)
+  if command_exists tldr; then
+    log "INFO" "Updating tldr pages"
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      tldr --update || log "WARN" "Failed to update tldr pages"
+    else
+      log "DRY" "Would update tldr pages"
+    fi
+  fi
+
+  log "SUCCESS" "Libs setup completed"
+  return 0
 }
 
 main

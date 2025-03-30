@@ -1,47 +1,218 @@
 #!/usr/bin/env bash
+# Development environment setup
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
-main() {
-    log "INFO" "Starting dev setup"
-
-    init_homebrew
-
-    log "INFO" "Configuring Git"
-    execute "git config --global user.email \"huyn.nguyen95@gmail.com\"" "Setting Git email"
-    execute "git config --global user.name \"thenameiswiiwin\"" "Setting Git name"
-    execute "git config --global push.autoSetupRemote true" "Setting Git auto setup remote"
-    execute "git config --global init.defaultBranch main" "Setting default branch to main"
-
-    # Development tools to install
-    local packages=(
-        "lazygit"  # Git UI
-        "luarocks" # Lua package manager
-        "luacheck" # Lua static analyzer
-    )
-
-    for package in "${packages[@]}"; do
-        log "INFO" "Installing $package"
-        install_package "$package" || log "WARN" "Failed to install $package"
-    done
-
-    log "INFO" "Verifying installations"
-    for package in "${packages[@]}"; do
-        if command_exists "$package" || brew_installed "$package"; then
-            log "INFO" "$package is installed"
-        else
-            log "WARN" "$package installation could not be verified"
-        fi
-    done
-
-    log "SUCCESS" "Dev setup completed"
+# Function to install Lua 5.1.5 with architecture awareness
+install_lua51() {
+  # Check if lua5.1 is already installed
+  if command_exists lua5.1; then
+    log "INFO" "Lua 5.1 is already installed"
     return 0
+  fi
+
+  # Install dependencies based on OS and architecture
+  if [[ "$OS" = "Linux" ]]; then
+    log "INFO" "Installing Lua build dependencies"
+
+    # Architecture-specific dependencies if needed
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      log "INFO" "Installing ARM-specific Lua dependencies"
+    fi
+
+    # System-specific dependencies
+    if command_exists apt; then
+      execute "sudo apt-get update && sudo apt-get install -y build-essential libreadline-dev libncurses-dev" "Installing Lua dependencies for Debian/Ubuntu"
+    elif command_exists dnf; then
+      execute "sudo dnf install -y readline-devel ncurses-devel" "Installing Lua dependencies for Fedora/RHEL"
+    elif command_exists pacman; then
+      execute "sudo pacman -Sy --noconfirm readline ncurses" "Installing Lua dependencies for Arch"
+    elif command_exists apk; then
+      execute "sudo apk add --no-cache readline-dev ncurses-dev build-base" "Installing Lua dependencies for Alpine"
+    else
+      log "WARN" "Could not detect package manager to install dependencies"
+      log "WARN" "You may need to manually install readline and ncurses development libraries"
+    fi
+  elif [[ "$OS" = "Darwin" ]]; then
+    log "INFO" "Installing Lua build dependencies for macOS"
+    install_package "readline" || log "WARN" "Failed to install readline, compilation might fail"
+  fi
+
+  # Set source and installation paths
+  local lua_src_dir="$DEV_ENV/resources/lua-5.1.5"
+  local lua_tar="$DEV_ENV/resources/lua-5.1.5.tar.gz"
+  local lua_install_dir="$HOME/opt/lua@5.1"
+  local lua_bin_dir="$HOME/.local/bin"
+
+  # Create directories if they don't exist
+  if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    mkdir -p "$lua_bin_dir" 2>/dev/null || log "WARN" "Failed to create bin directory"
+  else
+    log "DRY" "Would create directory: $lua_bin_dir"
+  fi
+
+  # Check if we have the resource file
+  if [[ ! -f "$lua_tar" && ! -d "$lua_src_dir" ]]; then
+    log "INFO" "Downloading Lua 5.1.5 source"
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      execute "curl -L https://www.lua.org/ftp/lua-5.1.5.tar.gz -o $lua_tar" "Downloading Lua 5.1.5"
+    else
+      log "DRY" "Would download Lua 5.1.5 source"
+    fi
+  fi
+
+  # Extract tarball if needed
+  if [[ -f "$lua_tar" && ! -d "$lua_src_dir" ]]; then
+    log "INFO" "Extracting Lua 5.1.5 source"
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      execute "mkdir -p $(dirname "$lua_src_dir")" "Creating resources directory"
+      execute "tar -xzf $lua_tar -C $(dirname "$lua_src_dir")" "Extracting Lua 5.1.5"
+    else
+      log "DRY" "Would extract Lua 5.1.5 source"
+    fi
+  fi
+
+  # Build and install Lua 5.1.5 with architecture awareness
+  if [[ -d "$lua_src_dir" ]]; then
+    log "INFO" "Building Lua 5.1.5"
+    if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+      cd "$lua_src_dir"
+
+      # Architecture-specific builds
+      if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+        log "INFO" "Building for ARM architecture"
+        # Apply ARM-specific patches if needed
+
+        # Use appropriate make target
+        if [[ "$OS" = "Darwin" ]]; then
+          # macOS ARM (Apple Silicon)
+          execute "make macosx MYCFLAGS=-mmacosx-version-min=11.0" "Building Lua 5.1.5 for macOS ARM"
+        else
+          # Linux ARM
+          execute "make linux MYCFLAGS=-fPIC" "Building Lua 5.1.5 for Linux ARM"
+        fi
+      else
+        # Standard x86_64 build
+        if [[ "$OS" = "Darwin" ]]; then
+          execute "make macosx" "Building Lua 5.1.5 for macOS"
+        elif [[ "$OS" = "Linux" ]]; then
+          execute "make linux" "Building Lua 5.1.5 for Linux"
+        else
+          log "ERROR" "Unsupported OS: $OS"
+          return 1
+        fi
+      fi
+
+      # Create installation directory
+      log "INFO" "Installing Lua 5.1.5"
+      execute "mkdir -p $lua_install_dir" "Creating Lua install directory"
+      execute "make INSTALL_TOP=$lua_install_dir install" "Installing Lua 5.1.5"
+
+      # Create symlink
+      log "INFO" "Creating Lua 5.1 symlink"
+      execute "ln -sf $lua_install_dir/bin/lua $lua_bin_dir/lua5.1" "Creating lua5.1 symlink"
+      execute "chmod +x $lua_bin_dir/lua5.1" "Making lua5.1 executable"
+
+      # Return to original directory
+      cd - >/dev/null
+    else
+      log "DRY" "Would build and install Lua 5.1.5"
+    fi
+  else
+    log "WARN" "Could not find Lua 5.1.5 source directory"
+    return 1
+  fi
+
+  # Update profile for Lua paths
+  update_profile() {
+    local profile_file="$1"
+
+    if [[ -f "$profile_file" ]]; then
+      log "INFO" "Updating Lua path in $profile_file"
+
+      lua_config="
+# Lua 5.1 path (for Neovim compatibility)
+export PATH=\"\$PATH:$lua_bin_dir:$lua_install_dir/bin\"
+"
+
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        if ! grep -q "Lua 5.1 path" "$profile_file"; then
+          backup_file "$profile_file"
+          echo "$lua_config" >>"$profile_file" || log "WARN" "Failed to update $profile_file"
+        else
+          log "INFO" "Lua path already configured in $profile_file"
+        fi
+      else
+        log "DRY" "Would add Lua 5.1 path to $profile_file"
+      fi
+    fi
+  }
+
+  # Update paths in profile files
+  update_profile "$HOME/.zprofile"
+  update_profile "$HOME/.bash_profile"
+
+  return 0
+}
+
+main() {
+  log "INFO" "Starting dev setup"
+
+  init_homebrew
+
+  log "INFO" "Configuring Git"
+  execute "git config --global user.email \"huyn.nguyen95@gmail.com\"" "Setting Git email"
+  execute "git config --global user.name \"thenameiswiiwin\"" "Setting Git name"
+  execute "git config --global push.autoSetupRemote true" "Setting Git auto setup remote"
+  execute "git config --global init.defaultBranch main" "Setting default branch to main"
+
+  # Development tools to install
+  local packages=(
+    "lazygit"  # Git UI
+    "luacheck" # Lua static analyzer
+    "luarocks"
+  )
+
+  # Install packages with architecture awareness
+  for package in "${packages[@]}"; do
+    log "INFO" "Installing $package"
+    # Handle ARM-specific installation if needed
+    if [[ "$IS_ARM_CPU" -eq 1 ]] && [[ "$package" = "luarocks" || "$package" = "luacheck" ]]; then
+      log "INFO" "Installing $package for ARM architecture"
+    fi
+
+    install_package "$package" || log "WARN" "Failed to install $package"
+  done
+
+  # Install Lua 5.1.5 with architecture awareness
+  log "INFO" "Installing Lua 5.1.5 for Neovim compatibility"
+  install_lua51
+
+  # Verify installations
+  log "INFO" "Verifying installations"
+  for package in "${packages[@]}"; do
+    if command_exists "$package" || brew_installed "$package"; then
+      log "INFO" "$package is installed"
+    else
+      log "WARN" "$package installation could not be verified"
+    fi
+  done
+
+  # Verify Lua 5.1 installation
+  if command_exists lua5.1 || [[ -f "$HOME/.local/bin/lua5.1" ]]; then
+    log "SUCCESS" "Lua 5.1 is installed"
+  else
+    log "WARN" "Lua 5.1 installation could not be verified"
+  fi
+
+  log "SUCCESS" "Dev setup completed"
+  return 0
 }
 
 main

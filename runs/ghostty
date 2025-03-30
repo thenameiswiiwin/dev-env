@@ -1,80 +1,133 @@
 #!/usr/bin/env bash
+# Ghostty terminal emulator setup
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 main() {
-    log "INFO" "Starting Ghostty setup"
+  log "INFO" "Starting Ghostty setup"
 
-    if [[ "$OS" != "Darwin" ]]; then
-        log "WARN" "Ghostty is primarily designed for macOS, it might not be available for $OS"
-        log "INFO" "Checking if Ghostty can be installed via other means..."
+  # Architecture-specific checks
+  if [[ "$OS" != "Darwin" ]]; then
+    log "WARN" "Ghostty is primarily designed for macOS, exploring alternatives for $OS"
+    log "INFO" "Checking if Ghostty can be installed via other means..."
 
-        if [[ "$OS" == "Linux" ]]; then
-            log "INFO" "For Linux, checking if Ghostty can be built from source"
+    if [[ "$OS" == "Linux" ]]; then
+      log "INFO" "For Linux, checking if Ghostty can be built from source"
 
-            # Check for required build dependencies
-            required_deps=("curl" "git" "cmake" "pkg-config" "ninja-build" "libfontconfig1-dev" "libfreetype6-dev" "libxcb-xfixes0-dev" "libxkbcommon-dev")
-            missing_deps=false
+      # Check for required build dependencies
+      required_deps=("curl" "git" "cmake" "pkg-config" "ninja-build" "libfontconfig1-dev" "libfreetype6-dev" "libxcb-xfixes0-dev" "libxkbcommon-dev")
+      missing_deps=false
 
-            for dep in "${required_deps[@]}"; do
-                if ! command_exists "${dep%%-dev}" && ! dpkg -s "$dep" &>/dev/null; then
-                    log "WARN" "Missing build dependency: $dep"
-                    missing_deps=true
-                fi
-            done
+      # Handle ARM-specific dependencies
+      if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+        log "INFO" "Checking ARM-specific build dependencies"
+        required_deps+=("libgl1-mesa-dev" "libgles2-mesa-dev")
+      fi
 
-            if [[ "$missing_deps" == "true" ]]; then
-                log "INFO" "Would need to install missing dependencies before building Ghostty"
-                if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                    log "INFO" "You can manually install Ghostty from source following instructions at https://github.com/mitchellh/ghostty"
-                fi
-            else
-                log "INFO" "All build dependencies are present. You can build Ghostty from source."
-                log "INFO" "For instructions, see https://github.com/mitchellh/ghostty"
-            fi
+      for dep in "${required_deps[@]}"; do
+        local mapped_dep
+        mapped_dep=$(map_package_name "$dep" "$(get_system_package_manager)")
+
+        if ! command_exists "${mapped_dep%%-dev}" && ! dpkg -s "$mapped_dep" &>/dev/null; then
+          log "WARN" "Missing build dependency: $mapped_dep"
+          missing_deps=true
         fi
+      done
 
-        return 0
-    fi
-
-    init_homebrew
-
-    # Install Ghostty
-    log "INFO" "Installing Ghostty terminal emulator"
-    install_cask "ghostty" || log "WARN" "Failed to install Ghostty"
-
-    config_dir="$XDG_CONFIG_HOME/ghostty"
-    if [[ ! -d "$config_dir" ]]; then
-        log "INFO" "Creating Ghostty configuration directory"
-        execute "mkdir -p \"$config_dir\"" "Creating directory"
-    fi
-
-    # Check if configuration file exists in our repository
-    if [[ -f "$DEV_ENV/env/.config/ghostty/config" ]]; then
-        log "INFO" "Found Ghostty configuration file in repository"
-        if [[ ! -f "$config_dir/config" ]]; then
-            log "INFO" "Copying Ghostty configuration file"
-            execute "cp \"$DEV_ENV/env/.config/ghostty/config\" \"$config_dir/config\"" "Copying configuration file"
-        else
-            log "INFO" "Ghostty configuration file already exists"
+      if [[ "$missing_deps" == "true" ]]; then
+        log "INFO" "Would need to install missing dependencies before building Ghostty"
+        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+          log "INFO" "You can manually install Ghostty from source following instructions at https://github.com/mitchellh/ghostty"
         fi
+      else
+        log "INFO" "All build dependencies are present. You can build Ghostty from source."
+        log "INFO" "For instructions, see https://github.com/mitchellh/ghostty"
+      fi
+
+      # Offer terminal alternatives for Linux
+      log "INFO" "Consider alternative terminal emulators for Linux:"
+      log "INFO" "- Alacritty: GPU-accelerated terminal (supports ARM)"
+      log "INFO" "- Kitty: Fast, feature-rich terminal (supports ARM)"
+
+      # Try to install an alternative
+      log "INFO" "Would you like to install Alacritty instead? (y/n)"
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+          if command_exists apt; then
+            execute "sudo apt-get update && sudo apt-get install -y alacritty" "Installing Alacritty"
+          elif command_exists pacman; then
+            execute "sudo pacman -Sy --noconfirm alacritty" "Installing Alacritty"
+          elif command_exists dnf; then
+            execute "sudo dnf install -y alacritty" "Installing Alacritty"
+          else
+            log "WARN" "No package manager found for installing Alacritty"
+          fi
+        fi
+      else
+        log "DRY" "Would prompt to install Alacritty"
+      fi
     fi
 
-    log "INFO" "Verifying Ghostty installation"
-    if cask_installed "ghostty"; then
-        log "INFO" "Ghostty is installed"
-    else
-        log "WARN" "Ghostty installation could not be verified"
-    fi
-
-    log "SUCCESS" "Ghostty setup completed"
     return 0
+  fi
+
+  # Initialize Homebrew
+  init_homebrew
+
+  # Install Ghostty with architecture awareness
+  log "INFO" "Installing Ghostty terminal emulator"
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    log "INFO" "Installing Ghostty for Apple Silicon"
+    install_cask "ghostty" || log "WARN" "Failed to install Ghostty on Apple Silicon"
+  else
+    log "INFO" "Installing Ghostty for Intel"
+    install_cask "ghostty" || log "WARN" "Failed to install Ghostty on Intel Mac"
+  fi
+
+  # Create configuration directory
+  config_dir="$XDG_CONFIG_HOME/ghostty"
+  if [[ ! -d "$config_dir" ]]; then
+    log "INFO" "Creating Ghostty configuration directory"
+    execute "mkdir -p \"$config_dir\"" "Creating directory"
+  fi
+
+  # Install configuration file
+  if [[ -f "$DEV_ENV/env/.config/ghostty/config" ]]; then
+    log "INFO" "Found Ghostty configuration file in repository"
+    if [[ ! -f "$config_dir/config" ]]; then
+      log "INFO" "Copying Ghostty configuration file"
+      execute "cp \"$DEV_ENV/env/.config/ghostty/config\" \"$config_dir/config\"" "Copying configuration file"
+    else
+      log "INFO" "Ghostty configuration file already exists"
+    fi
+  fi
+
+  # Verify installation
+  log "INFO" "Verifying Ghostty installation"
+  if cask_installed "ghostty"; then
+    log "INFO" "Ghostty is installed"
+
+    # Check if app actually exists
+    if [[ -d "/Applications/Ghostty.app" ]]; then
+      log "SUCCESS" "Ghostty.app found in /Applications"
+    elif [[ -d "$HOME/Applications/Ghostty.app" ]]; then
+      log "SUCCESS" "Ghostty.app found in ~/Applications"
+    else
+      log "WARN" "Ghostty installed but app not found in expected locations"
+    fi
+  else
+    log "WARN" "Ghostty installation could not be verified"
+  fi
+
+  log "SUCCESS" "Ghostty setup completed"
+  return 0
 }
 
 main

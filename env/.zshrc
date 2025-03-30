@@ -1,5 +1,6 @@
 # Oh My Zsh installation path
 export ZSH="$HOME/.oh-my-zsh"
+export TMUX_THEME=dawn
 
 # Theme selection
 ZSH_THEME="amuse"
@@ -20,17 +21,60 @@ ZSH_THEME_GIT_PROMPT_SUFFIX=")"
 ZSH_THEME_GIT_PROMPT_DIRTY="*"
 ZSH_THEME_GIT_PROMPT_CLEAN=""
 
+# Detect OS and architecture
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+
+# Handle architecture-specific paths and fix insecure directories
+if [[ "$OS" == "Darwin" ]]; then
+    # Detect Homebrew prefix based on architecture
+    if [[ "$ARCH" == "arm64" ]]; then
+        # Apple Silicon Mac
+        HOMEBREW_PREFIX="/opt/homebrew"
+    else
+        # Intel Mac
+        HOMEBREW_PREFIX="/usr/local"
+    fi
+
+    # Fix insecure directories BEFORE loading Oh My Zsh
+    autoload -Uz compaudit
+    if compaudit &>/dev/null; then
+        # Fix permissions on insecure directories
+        for dir in $(compaudit); do
+            echo "Fixing insecure directory permissions: $dir"
+            chmod go-w "$dir" 2>/dev/null || sudo chmod go-w "$dir" 2>/dev/null
+        done
+    fi
+fi
+
 # Load Oh My Zsh
 source $ZSH/oh-my-zsh.sh
 
 # Source profile if it exists
 [[ -f "$ZDOTDIR/.zprofile" ]] && source "$ZDOTDIR/.zprofile"
 
-# Load plugin configurations
-if command -v brew &>/dev/null; then
+# Load plugin configurations with architecture awareness
+if [[ "$OS" == "Darwin" && -d "$HOMEBREW_PREFIX" ]]; then
+    # Use architecture-specific Homebrew paths
+    for plugin in "zsh-autosuggestions" "zsh-syntax-highlighting"; do
+        plugin_path="$HOMEBREW_PREFIX/share/${plugin}/${plugin}.zsh"
+        if [[ -f "$plugin_path" ]]; then
+            source "$plugin_path"
+        fi
+    done
+
+    # Add Homebrew completions to FPATH
+    if [[ -d "$HOMEBREW_PREFIX/share/zsh-completions" ]]; then
+        FPATH="$HOMEBREW_PREFIX/share/zsh-completions:$FPATH"
+    fi
+    
+    if [[ -d "$HOMEBREW_PREFIX/share/zsh/site-functions" ]]; then
+        FPATH="$HOMEBREW_PREFIX/share/zsh/site-functions:$FPATH"
+    fi
+else
+    # Fall back to checking multiple paths for non-macOS or if Homebrew prefix not found
     for plugin in "zsh-autosuggestions" "zsh-syntax-highlighting"; do
         for plugin_path in \
-            "$(brew --prefix)/share/${plugin}/${plugin}.zsh" \
             "/usr/local/share/${plugin}/${plugin}.zsh" \
             "/opt/homebrew/share/${plugin}/${plugin}.zsh" \
             "/home/linuxbrew/.linuxbrew/share/${plugin}/${plugin}.zsh" \
@@ -42,15 +86,20 @@ if command -v brew &>/dev/null; then
         done
     done
 
-    # Configure Zsh completions
-    FPATH="$(brew --prefix)/share/zsh-completions:$FPATH"
+    # Add non-architecture specific paths to FPATH
+    if command -v brew &>/dev/null; then
+        FPATH="$(brew --prefix)/share/zsh-completions:$FPATH"
+    fi
+fi
+
+# Add Docker completions to FPATH if they exist
+if [[ -d "$HOME/.docker/completions" ]]; then
     FPATH="$HOME/.docker/completions:$FPATH"
 fi
 
-# Initialize completions
+# Initialize completions - only do this ONCE with proper flags
 autoload -Uz compinit
-compinit -d $ZDOTDIR/.zcompdump
-compinit -u
+compinit -i -d "$ZDOTDIR/.zcompdump"
 
 # Configure Zsh completion
 zstyle ':completion:*' menu select
@@ -82,9 +131,6 @@ setopt auto_cd               # Change directory without cd
 setopt auto_pushd            # Push directories onto the stack
 setopt pushd_ignore_dups     # Don't push duplicates onto the stack
 
-# Detect OS for OS-specific configurations
-OS="$(uname -s)"
-
 # Utility function to find and kill process by port
 findandkill() {
     if [[ -z "$1" ]]; then
@@ -105,9 +151,6 @@ findandkill() {
 # Common aliases
 alias v='nvim'
 alias vim='nvim'
-alias t='tmux'
-alias tmux='tmux -2'
-alias g='git'
 alias ll='ls -lah'
 alias l='ls -lah'
 alias hist='history | grep'
@@ -155,3 +198,29 @@ fi
 
 # Final PATH adjustments
 export PATH="$HOME/.local/bin:$PATH"
+
+# Handle tmux alias with architecture awareness
+if [[ "$OS" == "Darwin" && -d "$HOMEBREW_PREFIX" ]]; then
+    # Use architecture-aware path for tmux
+    if [[ -f "$HOMEBREW_PREFIX/bin/tmux" ]]; then
+        unalias tmux 2>/dev/null
+        alias tmux="command $HOMEBREW_PREFIX/bin/tmux -2"
+        unalias t 2>/dev/null
+        alias t='tmux'
+    fi
+else
+    # Try the standard path first
+    if [[ -f "/usr/local/bin/tmux" ]]; then
+        unalias tmux 2>/dev/null
+        alias tmux='command /usr/local/bin/tmux -2'
+        unalias t 2>/dev/null
+        alias t='tmux'
+    # Otherwise find tmux in PATH
+    elif command -v tmux &>/dev/null; then
+        tmux_path=$(command -v tmux)
+        unalias tmux 2>/dev/null
+        alias tmux="command $tmux_path -2"
+        unalias t 2>/dev/null
+        alias t='tmux'
+    fi
+fi

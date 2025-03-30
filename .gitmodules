@@ -4,3 +4,9 @@
 [submodule "env/.config/nvim"]
 	path = env/.config/nvim
 	url = https://github.com/thenameiswiiwin/nvim.git
+[submodule "docker-dev-env"]
+	path = docker-dev-env
+	url = https://github.com/thenameiswiiwin/docker-dev-env.git
+[submodule "resources/keyboard"]
+	path = resources/keyboard
+	url = https://github.com/thenameiswiiwin/keyboard.git

@@ -17,43 +17,43 @@ export PATH="$HOME/.local/apps:$PATH"
 
 # Set keyboard repeat rate (delay time, repeat rate)
 if command -v xset >/dev/null 2>&1; then
-    xset r rate 200 30
+  xset r rate 200 30
 fi
 
 # Set up key mappings
 # Caps Lock as Escape when tapped, Ctrl when held
 if command -v xcape >/dev/null 2>&1 && command -v setxkbmap >/dev/null 2>&1; then
-    setxkbmap -option 'caps:ctrl_modifier'
-    xcape -e 'Caps_Lock=Escape'
+  setxkbmap -option 'caps:ctrl_modifier'
+  xcape -e 'Caps_Lock=Escape'
 fi
 
 # Set default cursor
 if command -v xsetroot >/dev/null 2>&1; then
-    xsetroot -cursor_name left_ptr
+  xsetroot -cursor_name left_ptr
 fi
 
 # Start compositor for transparency/effects (if available)
 if command -v picom >/dev/null 2>&1 && ! pgrep -x picom >/dev/null; then
-    picom -b
+  picom -b
 elif command -v compton >/dev/null 2>&1 && ! pgrep -x compton >/dev/null; then
-    compton -b
+  compton -b
 fi
 
 # Load .Xresources if it exists
 if [ -f "$HOME"/.Xresources ]; then
-    if command -v xrdb >/dev/null 2>&1; then
-        xrdb -merge "$HOME"/.Xresources
-    fi
+  if command -v xrdb >/dev/null 2>&1; then
+    xrdb -merge "$HOME"/.Xresources
+  fi
 fi
 
 # Start notification daemon
 if command -v dunst >/dev/null 2>&1 && ! pgrep -x dunst >/dev/null; then
-    dunst &
+  dunst &
 fi
 
 # Start clipboard manager
 if command -v clipmenud >/dev/null 2>&1 && ! pgrep -x clipmenud >/dev/null; then
-    clipmenud &
+  clipmenud &
 fi
 
 # Check for current desktop environment
@@ -61,30 +61,30 @@ current_desktop="${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-unknown}}"
 
 # Start window manager status bar
 if [[ "$current_desktop" == "i3" ]] || [[ "$current_desktop" == "unknown" && -f "$HOME/.i3/config" ]]; then
-    if command -v polybar >/dev/null 2>&1 && ! pgrep -x polybar >/dev/null; then
-        polybar main &
-    elif command -v i3status >/dev/null 2>&1; then
-        i3status &
-    fi
+  if command -v polybar >/dev/null 2>&1 && ! pgrep -x polybar >/dev/null; then
+    polybar main &
+  elif command -v i3status >/dev/null 2>&1; then
+    i3status &
+  fi
 fi
 
 # Background images
 if command -v feh >/dev/null 2>&1; then
-    if [ -d "$XDG_CONFIG_HOME/wallpapers" ]; then
-        feh --bg-fill --randomize "$XDG_CONFIG_HOME/wallpapers" &
-    elif [ -d "$HOME/Pictures/wallpapers" ]; then
-        feh --bg-fill --randomize "$HOME/Pictures/wallpapers" &
-    fi
+  if [ -d "$XDG_CONFIG_HOME/wallpapers" ]; then
+    feh --bg-fill --randomize "$XDG_CONFIG_HOME/wallpapers" &
+  elif [ -d "$HOME/Pictures/wallpapers" ]; then
+    feh --bg-fill --randomize "$HOME/Pictures/wallpapers" &
+  fi
 fi
 
 # Load any system-specific settings from the personal directory
 PERSONAL_PROFILE="$XDG_CONFIG_HOME/personal/xprofile"
 if [ -d "$(dirname "$PERSONAL_PROFILE")" ] && [ -f "$PERSONAL_PROFILE" ] && [ -r "$PERSONAL_PROFILE" ]; then
-    # shellcheck source=~/.config/personal/xprofile
-    source "$PERSONAL_PROFILE" 2>/dev/null
+  # shellcheck source=~/.config/personal/xprofile
+  source "$PERSONAL_PROFILE" 2>/dev/null
 fi
 
 # Start screensaver daemon
 if command -v xscreensaver >/dev/null 2>&1 && ! pgrep -x xscreensaver >/dev/null; then
-    xscreensaver -no-splash &
+  xscreensaver -no-splash &
 fi

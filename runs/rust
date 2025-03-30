@@ -1,192 +1,206 @@
 #!/usr/bin/env bash
+# Rust environment setup
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/../utilities" 2>/dev/null; then
-    echo "Failed to source utilities"
-    exit 1
+  echo "Failed to source utilities"
+  exit 1
 fi
 
 main() {
-    log "INFO" "Starting Rust setup"
+  log "INFO" "Starting Rust setup"
 
-    init_homebrew
+  init_homebrew
 
-    # Install packages
-    local packages=(
-        "rustup" # Rust toolchain installer
-        "stylua" # Lua formatter
-        "luajit" # LuaJIT
+  # Install packages
+  local packages=(
+    "rustup" # Rust toolchain installer
+    "stylua" # Lua formatter
+    "luajit" # LuaJIT
+  )
+
+  for package in "${packages[@]}"; do
+    log "INFO" "Installing $package"
+    install_package "$package" || {
+      log "WARN" "Failed to install $package with Homebrew, trying alternatives"
+
+      case "$package" in
+      "rustup")
+        log "INFO" "Trying to install Rust with rustup installer"
+        if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+          log "INFO" "Downloading Rust installer"
+
+          # Platform-specific installation
+          if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+            log "INFO" "Using ARM-specific installation method"
+            # Use platform detection for proper architecture support
+            execute "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh" "Downloading Rust installer"
+            execute "RUSTUP_INIT_SKIP_PATH_CHECK=yes sh rustup-init.sh -y --no-modify-path" "Installing Rust"
+            execute "rm rustup-init.sh" "Cleaning up Rust installer"
+          else
+            # Standard installation
+            execute "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh" "Downloading Rust installer"
+            execute "sh rustup-init.sh -y" "Installing Rust"
+            execute "rm rustup-init.sh" "Cleaning up Rust installer"
+          fi
+        else
+          log "DRY" "Would install Rust manually"
+        fi
+        ;;
+      "stylua")
+        if command_exists cargo; then
+          log "INFO" "Trying to install StyLua with cargo"
+          execute "cargo install stylua" "Installing StyLua with cargo"
+        fi
+        ;;
+      "luajit")
+        if [[ "$OS" = "Linux" ]]; then
+          log "INFO" "Trying to install LuaJIT with system package manager"
+          install_with_system_package_manager "luajit"
+        fi
+        ;;
+      esac
+    }
+  done
+
+  # Set up Rust if rustup is available
+  if command_exists rustup && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    log "INFO" "Setting default Rust toolchain to stable"
+    execute "rustup default stable" "Setting Rust toolchain" ||
+      log "WARN" "Failed to set Rust toolchain"
+
+    log "INFO" "Installing Rust components"
+    components=(
+      "rustfmt"       # Formatter
+      "clippy"        # Linter
+      "rust-src"      # Source code
+      "rust-analyzer" # Language server
     )
 
-    for package in "${packages[@]}"; do
-        log "INFO" "Installing $package"
-        install_package "$package" || {
-            log "WARN" "Failed to install $package with Homebrew, trying alternatives"
-
-            case "$package" in
-            "rustup")
-                log "INFO" "Trying to install Rust with rustup installer"
-                if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                    log "INFO" "Downloading Rust installer"
-                    execute "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh" "Downloading Rust installer"
-                    execute "sh rustup-init.sh -y" "Installing Rust"
-                    execute "rm rustup-init.sh" "Cleaning up Rust installer"
-                else
-                    log "DRY" "Would install Rust manually"
-                fi
-                ;;
-            "stylua")
-                if command_exists cargo; then
-                    log "INFO" "Trying to install StyLua with cargo"
-                    execute "cargo install stylua" "Installing StyLua with cargo"
-                fi
-                ;;
-            "luajit")
-                if [[ "$OS" == "Linux" ]]; then
-                    log "INFO" "Trying to install LuaJIT with system package manager"
-                    install_with_system_package_manager "luajit"
-                fi
-                ;;
-            esac
-        }
+    for component in "${components[@]}"; do
+      log "INFO" "Installing Rust component: $component"
+      rustup component add "$component" 2>/dev/null || log "WARN" "Failed to install $component"
     done
+  elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would install Rust toolchain and components"
+  fi
 
-    # Set up Rust if rustup is available
-    if command_exists rustup && [[ ${DRY_RUN:-0} -eq 0 ]]; then
-        log "INFO" "Setting default Rust toolchain to stable"
-        execute "rustup default stable" "Setting Rust toolchain" ||
-            log "WARN" "Failed to set Rust toolchain"
+  # Update profile files to include Cargo bin in PATH
+  update_cargo_path() {
+    local profile_file="$1"
 
-        log "INFO" "Installing Rust components"
-        components=(
-            "rustfmt"       # Formatter
-            "clippy"        # Linter
-            "rust-src"      # Source code
-            "rust-analyzer" # Language server
-        )
+    if [[ -f "$profile_file" ]]; then
+      log "INFO" "Updating Cargo path in $profile_file"
 
-        for component in "${components[@]}"; do
-            log "INFO" "Installing Rust component: $component"
-            rustup component add "$component" 2>/dev/null || log "WARN" "Failed to install $component"
-        done
-    elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would install Rust toolchain and components"
-    fi
-
-    # Update profile files to include Cargo bin in PATH
-    update_cargo_path() {
-        local profile_file="$1"
-
-        if [[ -f "$profile_file" ]]; then
-            log "INFO" "Updating Cargo path in $profile_file"
-
-            cargo_config="
+      cargo_config="
 # Cargo bin path
 export PATH=\"\$PATH:\$HOME/.cargo/bin\"
 "
 
-            if [[ ${DRY_RUN:-0} -eq 0 ]]; then
-                if ! grep -q "Cargo bin path" "$profile_file"; then
-                    backup_file "$profile_file"
-                    echo "$cargo_config" >>"$profile_file" || log "WARN" "Failed to update $profile_file"
-                else
-                    log "INFO" "Cargo path already configured in $profile_file"
-                fi
-            else
-                log "DRY" "Would add Cargo bin path to $profile_file"
-            fi
+      if [[ ${DRY_RUN:-0} -eq 0 ]]; then
+        if ! grep -q "Cargo bin path" "$profile_file"; then
+          backup_file "$profile_file"
+          echo "$cargo_config" >>"$profile_file" || log "WARN" "Failed to update $profile_file"
+        else
+          log "INFO" "Cargo path already configured in $profile_file"
         fi
-    }
-
-    update_cargo_path "$HOME/.zprofile"
-    update_cargo_path "$HOME/.bash_profile"
-
-    # Update current PATH to include Cargo binaries for the current session
-    if [[ -d "$HOME/.cargo/bin" ]]; then
-        export PATH="$PATH:$HOME/.cargo/bin"
+      else
+        log "DRY" "Would add Cargo bin path to $profile_file"
+      fi
     fi
+  }
 
-    # Install cargo-update for maintaining packages
-    if command_exists cargo && [[ ${DRY_RUN:-0} -eq 0 ]]; then
-        log "INFO" "Installing cargo-update"
-        cargo install cargo-update 2>/dev/null || log "WARN" "Failed to install cargo-update"
-    fi
+  update_cargo_path "$HOME/.zprofile"
+  update_cargo_path "$HOME/.bash_profile"
 
-    # Install common Rust tools
-    if command_exists cargo && [[ ${DRY_RUN:-0} -eq 0 ]]; then
-        log "INFO" "Installing common Rust tools"
+  # Update current PATH to include Cargo binaries for the current session
+  if [[ -d "$HOME/.cargo/bin" ]]; then
+    export PATH="$PATH:$HOME/.cargo/bin"
+  fi
 
-        cargo_packages=(
-            "cargo-edit"     # For cargo add/rm/upgrade commands
-            "cargo-watch"    # For watching code and running commands
-            "cargo-audit"    # For security auditing
-            "cargo-expand"   # For macro expansion
-            "cargo-outdated" # For checking outdated dependencies
-        )
+  # Install cargo-update for maintaining packages
+  if command_exists cargo && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    log "INFO" "Installing cargo-update"
+    cargo install cargo-update 2>/dev/null || log "WARN" "Failed to install cargo-update"
+  fi
 
-        for package in "${cargo_packages[@]}"; do
-            log "INFO" "Installing Cargo package: $package"
-            cargo install "$package" 2>/dev/null || log "WARN" "Failed to install $package"
-        done
-    elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
-        log "DRY" "Would install common Rust tools"
-    fi
+  # Install common Rust tools
+  if command_exists cargo && [[ ${DRY_RUN:-0} -eq 0 ]]; then
+    log "INFO" "Installing common Rust tools"
 
-    # Verify installations - improved detection
-    log "INFO" "Verifying installations"
+    cargo_packages=(
+      "cargo-edit"     # For cargo add/rm/upgrade commands
+      "cargo-watch"    # For watching code and running commands
+      "cargo-audit"    # For security auditing
+      "cargo-expand"   # For macro expansion
+      "cargo-outdated" # For checking outdated dependencies
+    )
 
-    # Check for rustc - try both direct command and with explicit path
-    if command_exists rustc; then
-        rust_version=$(rustc --version)
-        log "SUCCESS" "Rust installed successfully: $rust_version"
-    elif [[ -f "$HOME/.cargo/bin/rustc" ]]; then
-        rust_version=$("$HOME/.cargo/bin/rustc" --version)
-        log "SUCCESS" "Rust installed successfully (in ~/.cargo/bin): $rust_version"
-    else
-        log "WARN" "Rust installation could not be verified"
-    fi
+    for package in "${cargo_packages[@]}"; do
+      log "INFO" "Installing Cargo package: $package"
+      cargo install "$package" 2>/dev/null || log "WARN" "Failed to install $package"
+    done
+  elif [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log "DRY" "Would install common Rust tools"
+  fi
 
-    # Check for cargo - try both direct command and with explicit path
-    if command_exists cargo; then
-        cargo_version=$(cargo --version)
-        log "SUCCESS" "Cargo installed successfully: $cargo_version"
-    elif [[ -f "$HOME/.cargo/bin/cargo" ]]; then
-        cargo_version=$("$HOME/.cargo/bin/cargo" --version)
-        log "SUCCESS" "Cargo installed successfully (in ~/.cargo/bin): $cargo_version"
-    else
-        log "WARN" "Cargo installation could not be verified"
-    fi
+  # Verify installations with architecture awareness
+  log "INFO" "Verifying installations"
 
-    if command_exists stylua; then
-        stylua_version=$(stylua --version)
-        log "INFO" "StyLua installed successfully: $stylua_version"
-    elif [[ -f "$HOME/.cargo/bin/stylua" ]]; then
-        stylua_version=$("$HOME/.cargo/bin/stylua" --version)
-        log "INFO" "StyLua installed successfully (in ~/.cargo/bin): $stylua_version"
-    else
-        log "WARN" "StyLua installation could not be verified"
-    fi
+  # Check for rustc - try both direct command and with explicit path
+  if command_exists rustc; then
+    rust_version=$(rustc --version)
+    log "SUCCESS" "Rust installed successfully: $rust_version"
+  elif [[ -f "$HOME/.cargo/bin/rustc" ]]; then
+    rust_version=$("$HOME/.cargo/bin/rustc" --version)
+    log "SUCCESS" "Rust installed successfully (in ~/.cargo/bin): $rust_version"
+  else
+    log "WARN" "Rust installation could not be verified"
+  fi
 
-    if command_exists rustup; then
-        rustup_version=$(rustup --version)
-        log "INFO" "Rustup installed successfully: $rustup_version"
+  # Check for cargo - try both direct command and with explicit path
+  if command_exists cargo; then
+    cargo_version=$(cargo --version)
+    log "SUCCESS" "Cargo installed successfully: $cargo_version"
+  elif [[ -f "$HOME/.cargo/bin/cargo" ]]; then
+    cargo_version=$("$HOME/.cargo/bin/cargo" --version)
+    log "SUCCESS" "Cargo installed successfully (in ~/.cargo/bin): $cargo_version"
+  else
+    log "WARN" "Cargo installation could not be verified"
+  fi
 
-        log "INFO" "Installed Rust components:"
-        rustup component list --installed || log "WARN" "Could not list installed components"
-    elif [[ -f "$HOME/.cargo/bin/rustup" ]]; then
-        rustup_version=$("$HOME/.cargo/bin/rustup" --version)
-        log "INFO" "Rustup installed successfully (in ~/.cargo/bin): $rustup_version"
+  # Check for stylua
+  if command_exists stylua; then
+    stylua_version=$(stylua --version)
+    log "INFO" "StyLua installed successfully: $stylua_version"
+  elif [[ -f "$HOME/.cargo/bin/stylua" ]]; then
+    stylua_version=$("$HOME/.cargo/bin/stylua" --version)
+    log "INFO" "StyLua installed successfully (in ~/.cargo/bin): $stylua_version"
+  else
+    log "WARN" "StyLua installation could not be verified"
+  fi
 
-        log "INFO" "Installed Rust components:"
-        "$HOME/.cargo/bin/rustup" component list --installed || log "WARN" "Could not list installed components"
-    else
-        log "WARN" "Rustup installation could not be verified"
-    fi
+  # Check for rustup and components
+  if command_exists rustup; then
+    rustup_version=$(rustup --version)
+    log "INFO" "Rustup installed successfully: $rustup_version"
 
-    log "SUCCESS" "Rust setup completed"
-    return 0
+    log "INFO" "Installed Rust components:"
+    rustup component list --installed || log "WARN" "Could not list installed components"
+  elif [[ -f "$HOME/.cargo/bin/rustup" ]]; then
+    rustup_version=$("$HOME/.cargo/bin/rustup" --version)
+    log "INFO" "Rustup installed successfully (in ~/.cargo/bin): $rustup_version"
+
+    log "INFO" "Installed Rust components:"
+    "$HOME/.cargo/bin/rustup" component list --installed || log "WARN" "Could not list installed components"
+  else
+    log "WARN" "Rustup installation could not be verified"
+  fi
+
+  log "SUCCESS" "Rust setup completed"
+  return 0
 }
 
 main

@@ -5,217 +5,280 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 if ! source "$script_dir/utilities" 2>/dev/null; then
-    echo "Failed to source utilities script"
-    exit 1
+  echo "Failed to source utilities script"
+  exit 1
 fi
 
 check_directory_and_files() {
-    local dir=$1
-    local name=$2
+  local dir=$1
+  local name=$2
 
-    log "INFO" "Checking $name directory: $dir"
-    if [[ ! -d "$dir" ]]; then
-        log "ERROR" "$name directory not found: $dir"
-        return 1
-    fi
+  log "INFO" "Checking $name directory: $dir"
+  if [[ ! -d "$dir" ]]; then
+    log "ERROR" "$name directory not found: $dir"
+    return 1
+  fi
 
-    log "INFO" "$name directory exists"
-    log "INFO" "Contents of $name directory:"
-    ls -la "$dir" || log "ERROR" "Could not list $name directory contents"
+  log "INFO" "$name directory exists"
+  log "INFO" "Contents of $name directory:"
+  ls -la "$dir" || log "ERROR" "Could not list $name directory contents"
 
-    return 0
+  return 0
 }
 
 check_executables() {
-    local dir=$1
-    local name=$2
+  local dir=$1
+  local name=$2
 
-    log "INFO" "Checking file permissions in $name directory"
-    find "$dir" -type f -not -executable -exec ls -l {} \; || log "WARN" "Could not check file permissions"
+  log "INFO" "Checking file permissions in $name directory"
+  find "$dir" -type f -not -executable -exec ls -l {} \; || log "WARN" "Could not check file permissions"
 
-    log "INFO" "Listing executable files in $name directory:"
-    find "$dir" -type f -executable -exec ls -l {} \; || log "WARN" "Could not list executable files"
+  log "INFO" "Listing executable files in $name directory:"
+  find "$dir" -type f -executable -exec ls -l {} \; || log "WARN" "Could not list executable files"
 
-    log "INFO" "Testing each file manually in $name directory:"
-    for file in "$dir"/*; do
-        if [[ -f "$file" ]]; then
-            if [[ -x "$file" ]]; then
-                log "INFO" "File is executable: $file"
-            else
-                log "WARN" "File is not executable: $file"
-            fi
-        fi
-    done
+  log "INFO" "Testing each file manually in $name directory:"
+  for file in "$dir"/*; do
+    if [[ -f "$file" ]]; then
+      if [[ -x "$file" ]]; then
+        log "INFO" "File is executable: $file"
+      else
+        log "WARN" "File is not executable: $file"
+      fi
+    fi
+  done
 
-    return 0
+  return 0
 }
 
 check_env_variables() {
-    log "INFO" "Checking environment variables:"
-    log "INFO" "DEV_ENV=${DEV_ENV:-not set}"
-    log "INFO" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-not set}"
-    log "INFO" "ZDOTDIR=${ZDOTDIR:-not set}"
-    log "INFO" "PATH=${PATH:-not set}"
-    log "INFO" "ARCH=$(uname -m)"
-    log "INFO" "OS=$(uname -s)"
+  log "INFO" "Checking environment variables:"
+  log "INFO" "DEV_ENV=${DEV_ENV:-not set}"
+  log "INFO" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-not set}"
+  log "INFO" "ZDOTDIR=${ZDOTDIR:-not set}"
+  log "INFO" "PATH=${PATH:-not set}"
+  log "INFO" "ARCH=$(uname -m)"
+  log "INFO" "OS=$(uname -s)"
+  log "INFO" "IS_ARM_CPU=${IS_ARM_CPU:-not set}"
+  log "INFO" "IS_ARM_LINUX=${IS_ARM_LINUX:-not set}"
 
-    return 0
+  return 0
 }
 
 check_commands() {
-    local commands=("brew" "git" "tmux" "zsh" "nvim")
+  local commands=("brew" "git" "tmux" "zsh" "nvim")
 
-    log "INFO" "Checking for required commands:"
-    for cmd in "${commands[@]}"; do
-        if command_exists "$cmd"; then
-            log "INFO" "Command found: $cmd"
-            case "$cmd" in
-            "brew")
-                brew --version | head -n 1 || log "WARN" "Could not get brew version"
-                ;;
-            "git")
-                git --version || log "WARN" "Could not get git version"
-                ;;
-            "tmux")
-                tmux -V || log "WARN" "Could not get tmux version"
-                ;;
-            "zsh")
-                zsh --version || log "WARN" "Could not get zsh version"
-                ;;
-            "nvim")
-                nvim --version | head -n 1 || log "WARN" "Could not get nvim version"
-                ;;
-            esac
-        else
-            log "WARN" "Command not found: $cmd"
+  log "INFO" "Checking for required commands:"
+  for cmd in "${commands[@]}"; do
+    if command_exists "$cmd"; then
+      log "INFO" "Command found: $cmd"
+      case "$cmd" in
+      "brew")
+        brew --version | head -n 1 || log "WARN" "Could not get brew version"
+        ;;
+      "git")
+        git --version || log "WARN" "Could not get git version"
+        ;;
+      "tmux")
+        tmux -V || log "WARN" "Could not get tmux version"
+        ;;
+      "zsh")
+        zsh --version || log "WARN" "Could not get zsh version"
+        ;;
+      "nvim")
+        nvim --version | head -n 1 || log "WARN" "Could not get nvim version"
+        ;;
+      esac
+    else
+      log "WARN" "Command not found: $cmd"
+
+      # Check common alternative locations
+      for alt_path in "/usr/local/bin/$cmd" "/opt/homebrew/bin/$cmd" "$HOME/.local/bin/$cmd" "$HOME/.cargo/bin/$cmd"; do
+        if [[ -x "$alt_path" ]]; then
+          log "INFO" "Found alternative at: $alt_path"
+          "$alt_path" --version 2>/dev/null || log "WARN" "Could not get version from alternative location"
+          break
         fi
-    done
+      done
+    fi
+  done
 
-    return 0
+  return 0
 }
 
 check_homebrew() {
-    if command_exists brew; then
-        log "INFO" "Homebrew installation details:"
-        brew config | grep "HOMEBREW_PREFIX" || log "WARN" "Could not determine Homebrew prefix"
+  if command_exists brew; then
+    log "INFO" "Homebrew installation details:"
+    brew config | grep "HOMEBREW_PREFIX" || log "WARN" "Could not determine Homebrew prefix"
 
-        log "INFO" "Homebrew installed packages:"
-        brew list --formula | head -n 10 || log "WARN" "Could not list Homebrew packages"
+    log "INFO" "Homebrew installed packages:"
+    brew list --formula | head -n 10 || log "WARN" "Could not list Homebrew packages"
 
-        if [[ "$OS" == "Darwin" ]]; then
-            log "INFO" "Homebrew installed casks:"
-            brew list --cask | head -n 10 || log "WARN" "Could not list Homebrew casks"
-        fi
-    else
-        log "WARN" "Homebrew not found"
+    if [[ "$OS" = "Darwin" ]]; then
+      log "INFO" "Homebrew installed casks:"
+      brew list --cask | head -n 10 || log "WARN" "Could not list Homebrew casks"
     fi
 
-    return 0
+    # Check for ARM-specific issues if relevant
+    if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+      log "INFO" "Checking ARM-specific Homebrew settings"
+      brew config | grep "CPU" || log "WARN" "Could not determine CPU architecture from Homebrew"
+    fi
+  else
+    log "WARN" "Homebrew not found"
+
+    # Check ARM Linux skipping
+    if [[ "$IS_ARM_LINUX" -eq 1 ]]; then
+      log "INFO" "Homebrew skipped on ARM Linux as expected"
+    fi
+  fi
+
+  return 0
 }
 
 check_filesystem_permissions() {
-    log "INFO" "Checking filesystem permissions:"
-    for dir in "$DEV_ENV" "$HOME/.local/bin" "$XDG_CONFIG_HOME"; do
-        if [[ -d "$dir" ]]; then
-            log "INFO" "Directory exists with permissions: $dir"
-            ls -ld "$dir" || log "WARN" "Could not check permissions for $dir"
-        else
-            log "WARN" "Directory does not exist: $dir"
-        fi
-    done
+  log "INFO" "Checking filesystem permissions:"
+  for dir in "$DEV_ENV" "$HOME/.local/bin" "$XDG_CONFIG_HOME"; do
+    if [[ -d "$dir" ]]; then
+      log "INFO" "Directory exists with permissions: $dir"
+      ls -ld "$dir" || log "WARN" "Could not check permissions for $dir"
+    else
+      log "WARN" "Directory does not exist: $dir"
+    fi
+  done
 
-    return 0
+  return 0
 }
 
 check_git_submodules() {
-    if [[ -f "$DEV_ENV/.gitmodules" ]]; then
-        log "INFO" "Submodules configuration exists:"
-        cat "$DEV_ENV/.gitmodules" || log "WARN" "Could not read .gitmodules file"
+  if [[ -f "$DEV_ENV/.gitmodules" ]]; then
+    log "INFO" "Submodules configuration exists:"
+    cat "$DEV_ENV/.gitmodules" || log "WARN" "Could not read .gitmodules file"
 
-        for module in "env/.config/nvim" "tmux-sessionizer" "docker-env-test"; do
-            if [[ -d "$DEV_ENV/$module" ]]; then
-                if [[ -d "$DEV_ENV/$module/.git" ]]; then
-                    log "INFO" "Submodule exists and is initialized: $module"
+    for module in "env/.config/nvim" "tmux-sessionizer" "docker-env-test"; do
+      if [[ -d "$DEV_ENV/$module" ]]; then
+        if [[ -d "$DEV_ENV/$module/.git" ]]; then
+          log "INFO" "Submodule exists and is initialized: $module"
 
-                    # Check current branch
-                    (cd "$DEV_ENV/$module" && git branch --show-current) || log "WARN" "Could not check branch for $module"
-                else
-                    log "WARN" "Submodule exists but may not be initialized: $module"
-                fi
-            else
-                log "WARN" "Submodule directory does not exist: $module"
-            fi
-        done
-    else
-        log "WARN" "No .gitmodules file found"
-    fi
+          # Check current branch
+          (cd "$DEV_ENV/$module" && git branch --show-current) || log "WARN" "Could not check branch for $module"
+        else
+          log "WARN" "Submodule exists but may not be initialized: $module"
+        fi
+      else
+        log "WARN" "Submodule directory does not exist: $module"
+      fi
+    done
+  else
+    log "WARN" "No .gitmodules file found"
+  fi
 
-    return 0
+  return 0
 }
 
 check_zsh_config() {
-    log "INFO" "Checking Zsh configuration:"
+  log "INFO" "Checking Zsh configuration:"
 
-    if [[ -f "$HOME/.zshenv" ]]; then
-        log "INFO" ".zshenv exists"
+  if [[ -f "$HOME/.zshenv" ]]; then
+    log "INFO" ".zshenv exists"
+  else
+    log "WARN" ".zshenv does not exist"
+  fi
+
+  if [[ -d "$HOME/.zsh" ]]; then
+    log "INFO" ".zsh directory exists"
+
+    if [[ -f "$HOME/.zsh/.zshrc" ]]; then
+      log "INFO" ".zsh/.zshrc exists"
     else
-        log "WARN" ".zshenv does not exist"
+      log "WARN" ".zsh/.zshrc does not exist"
     fi
 
-    if [[ -d "$HOME/.zsh" ]]; then
-        log "INFO" ".zsh directory exists"
-
-        if [[ -f "$HOME/.zsh/.zshrc" ]]; then
-            log "INFO" ".zsh/.zshrc exists"
-        else
-            log "WARN" ".zsh/.zshrc does not exist"
-        fi
-
-        if [[ -f "$HOME/.zsh/.zprofile" ]]; then
-            log "INFO" ".zsh/.zprofile exists"
-        else
-            log "WARN" ".zsh/.zprofile does not exist"
-        fi
+    if [[ -f "$HOME/.zsh/.zprofile" ]]; then
+      log "INFO" ".zsh/.zprofile exists"
     else
-        log "WARN" ".zsh directory does not exist"
+      log "WARN" ".zsh/.zprofile does not exist"
     fi
+  else
+    log "WARN" ".zsh directory does not exist"
+  fi
 
-    return 0
+  return 0
+}
+
+check_architecture_issues() {
+  log "INFO" "Performing architecture-specific checks:"
+
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    log "INFO" "ARM CPU detected (arch: $ARCH)"
+
+    # Check for common ARM issues with libraries
+    if [[ "$OS" = "Linux" ]]; then
+      log "INFO" "Checking ARM Linux compatibility"
+
+      # Check system calls required by Homebrew
+      if command_exists uname; then
+        log "INFO" "uname system details:"
+        uname -a || log "WARN" "Could not get uname details"
+      fi
+
+      # Check Docker ARM compatibility
+      if command_exists docker; then
+        log "INFO" "Docker architecture support:"
+        docker info | grep -E "Architecture|Operating System" || log "WARN" "Could not get Docker architecture info"
+      fi
+    elif [[ "$OS" = "Darwin" ]]; then
+      # Check Rosetta 2 on Apple Silicon
+      if [[ "$ARCH" = "arm64" ]]; then
+        log "INFO" "Checking Rosetta 2 status on Apple Silicon"
+        if [[ -f /usr/sbin/softwareupdate ]]; then
+          rosetta_status=$(pgrep -q oahd && echo "Installed" || echo "Not installed")
+          log "INFO" "Rosetta 2 status: $rosetta_status"
+        else
+          log "WARN" "Could not determine Rosetta 2 status"
+        fi
+      fi
+    fi
+  fi
+
+  return 0
 }
 
 main() {
-    log "INFO" "Starting diagnostic checks for environment: $DEV_ENV"
+  log "INFO" "Starting diagnostic checks for environment: $DEV_ENV"
 
-    # Check runs directory
-    runs_dir="$script_dir/runs"
-    check_directory_and_files "$runs_dir" "runs"
-    check_executables "$runs_dir" "runs"
+  # Check runs directory
+  runs_dir="$script_dir/runs"
+  check_directory_and_files "$runs_dir" "runs"
+  check_executables "$runs_dir" "runs"
 
-    # Check environment variables
-    check_env_variables
+  # Check environment variables
+  check_env_variables
 
-    # Check required commands
-    check_commands
+  # Check required commands
+  check_commands
 
-    # Check Homebrew
-    check_homebrew
+  # Check Homebrew
+  check_homebrew
 
-    # Check filesystem permissions
-    check_filesystem_permissions
+  # Check filesystem permissions
+  check_filesystem_permissions
 
-    # Check Git submodules
-    check_git_submodules
+  # Check Git submodules
+  check_git_submodules
 
-    # Check Zsh configuration
-    check_zsh_config
+  # Check Zsh configuration
+  check_zsh_config
 
-    # Check network connectivity
-    log "INFO" "Checking network connectivity:"
-    ping -c 1 github.com >/dev/null 2>&1 && log "INFO" "Network connection to GitHub is working" || log "WARN" "Cannot reach GitHub"
-    ping -c 1 brew.sh >/dev/null 2>&1 && log "INFO" "Network connection to Homebrew is working" || log "WARN" "Cannot reach Homebrew"
+  # Check architecture-specific issues
+  check_architecture_issues
 
-    log "SUCCESS" "Diagnostic checks completed"
-    return 0
+  # Check network connectivity
+  log "INFO" "Checking network connectivity:"
+  ping -c 1 github.com >/dev/null 2>&1 && log "INFO" "Network connection to GitHub is working" || log "WARN" "Cannot reach GitHub"
+  ping -c 1 brew.sh >/dev/null 2>&1 && log "INFO" "Network connection to Homebrew is working" || log "WARN" "Cannot reach Homebrew"
+
+  log "SUCCESS" "Diagnostic checks completed"
+  return 0
 }
 
 main

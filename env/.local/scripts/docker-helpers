@@ -1,144 +1,203 @@
 #!/usr/bin/env bash
+# Docker helper utilities with cross-platform compatibility
+# Usage: docker-helpers [command] [arguments]
 
 set -euo pipefail
 
+# OS and architecture detection
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+IS_ARM_CPU=$([ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ] && echo 1 || echo 0)
+
 usage() {
-    echo "Docker helper utilities"
-    echo "Usage: docker-helpers [command] [arguments]"
-    echo "Commands:"
-    echo "  clean              Remove unused containers, networks, images, volumes"
-    echo "  stop-all           Stop all running containers"
-    echo "  remove-all         Remove all containers (stopped)"
-    echo "  logs [container]   Show logs for container with follow"
-    echo "  exec [container]   Execute shell in container"
-    echo "  build [dir] [tag]  Build image from Dockerfile"
-    echo "  network [action]   Manage networks (ls, create, rm)"
-    echo "  stats              Show container resource usage"
-    exit 1
+  echo "Docker helper utilities"
+  echo "Usage: docker-helpers [command] [arguments]"
+  echo "Commands:"
+  echo "  clean              Remove unused containers, networks, images, volumes"
+  echo "  stop-all           Stop all running containers"
+  echo "  remove-all         Remove all containers (stopped)"
+  echo "  logs [container]   Show logs for container with follow"
+  echo "  exec [container]   Execute shell in container (auto-detects shell availability)"
+  echo "  build [dir] [tag]  Build image from Dockerfile (with multi-arch support)"
+  echo "  network [action]   Manage networks (ls, create, rm)"
+  echo "  stats              Show container resource usage"
+  echo "  prune-all          Remove all unused Docker objects"
+  exit 1
 }
 
+# Clean Docker resources with architecture awareness
 docker_clean() {
-    echo "Cleaning Docker resources..."
+  echo "Cleaning Docker resources..."
 
-    # Stop all containers first to prevent volume removal conflicts
-    if [[ $(docker ps -q | wc -l) -gt 0 ]]; then
-        echo "Stopping running containers..."
-        docker stop "$(docker ps -q)"
-    fi
+  # Stop all containers first to prevent volume removal conflicts
+  if [[ $(docker ps -q | wc -l) -gt 0 ]]; then
+    echo "Stopping running containers..."
+    docker stop "$(docker ps -q)"
+  fi
 
-    echo "Removing unused containers..."
-    docker container prune -f
+  echo "Removing unused containers..."
+  docker container prune -f
 
-    echo "Removing unused networks..."
-    docker network prune -f
+  echo "Removing unused networks..."
+  docker network prune -f
 
-    echo "Removing dangling images..."
-    docker image prune -f
+  echo "Removing dangling images..."
+  docker image prune -f
 
-    echo "Removing unused volumes..."
-    docker volume prune -f
+  # Architecture-specific cleanup
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    echo "Performing ARM-specific cleanup..."
+    # Add any ARM-specific cleanup steps here
+  fi
 
-    echo "Docker cleanup completed"
+  echo "Removing unused volumes..."
+  docker volume prune -f
+
+  echo "Docker cleanup completed"
 }
 
+# Stop all running containers
 docker_stop_all() {
-    echo "Stopping all Docker containers..."
+  echo "Stopping all Docker containers..."
 
-    if [[ $(docker ps -q | wc -l) -gt 0 ]]; then
-        docker stop "$(docker ps -q)"
-        echo "All containers stopped"
-    else
-        echo "No running containers found"
-    fi
+  if [[ $(docker ps -q | wc -l) -gt 0 ]]; then
+    docker stop "$(docker ps -q)"
+    echo "All containers stopped"
+  else
+    echo "No running containers found"
+  fi
 }
 
+# Remove all containers
 docker_remove_all() {
-    echo "Removing all Docker containers..."
+  echo "Removing all Docker containers..."
 
-    if [[ $(docker ps -a -q | wc -l) -gt 0 ]]; then
-        docker stop "$(docker ps -a -q)" 2>/dev/null || true
-        docker rm "$(docker ps -a -q)"
-        echo "All containers removed"
-    else
-        echo "No containers found"
-    fi
+  if [[ $(docker ps -a -q | wc -l) -gt 0 ]]; then
+    docker stop "$(docker ps -a -q)" 2>/dev/null || true
+    docker rm "$(docker ps -a -q)"
+    echo "All containers removed"
+  else
+    echo "No containers found"
+  fi
 }
 
+# Show logs for a container
 docker_logs() {
-    local container="$1"
-    echo "Showing logs for container $container..."
-    docker logs -f "$container"
+  local container="$1"
+  echo "Showing logs for container $container..."
+  docker logs -f "$container"
 }
 
+# Execute interactive shell in container with fallbacks
 docker_exec() {
-    local container="$1"
-    local shell="${2:-bash}"
+  local container="$1"
+  local shell="${2:-bash}"
 
-    if ! docker exec -it "$container" "$shell" 2>/dev/null; then
-        # If bash fails, try sh
-        docker exec -it "$container" sh
-    fi
+  # Try original shell
+  if ! docker exec -it "$container" "$shell" 2>/dev/null; then
+    echo "Shell $shell not available, trying alternatives..."
+
+    # Try common fallbacks
+    for alt_shell in bash sh ash busybox; do
+      if [[ "$alt_shell" != "$shell" ]]; then
+        echo "Trying $alt_shell..."
+        if docker exec -it "$container" "$alt_shell" 2>/dev/null; then
+          return 0
+        fi
+      fi
+    done
+
+    echo "No compatible shell found in container"
+    return 1
+  fi
 }
 
+# Build Docker image with architecture awareness
 docker_build() {
-    local dir="${1:-.}"
-    local tag="${2:-latest}"
+  local dir="${1:-.}"
+  local tag="${2:-latest}"
 
-    if [[ ! -f "$dir/Dockerfile" ]]; then
-        echo "Dockerfile not found in $dir"
-        exit 1
+  if [[ ! -f "$dir/Dockerfile" ]]; then
+    echo "Dockerfile not found in $dir"
+    exit 1
+  fi
+
+  local image_name
+  image_name=$(basename "$(realpath "$dir")" | tr '[:upper:]' '[:lower:]')
+
+  echo "Building Docker image $image_name:$tag from $dir/Dockerfile..."
+
+  # Handle ARM architecture builds
+  if [[ "$IS_ARM_CPU" -eq 1 ]]; then
+    echo "Building for ARM architecture ($ARCH)..."
+    if docker buildx ls | grep -q "default"; then
+      # Use buildx for multi-arch builds
+      echo "Using buildx for multi-architecture build..."
+      docker buildx build --platform linux/"$ARCH" -t "$image_name:$tag" "$dir"
+    else
+      # Standard build
+      docker build -t "$image_name:$tag" "$dir"
     fi
-
-    local image_name=$(basename "$(realpath "$dir")" | tr '[:upper:]' '[:lower:]')
-
-    echo "Building Docker image $image_name:$tag from $dir/Dockerfile..."
+  else
+    # Standard build
     docker build -t "$image_name:$tag" "$dir"
-    echo "Build completed: $image_name:$tag"
+  fi
+
+  echo "Build completed: $image_name:$tag"
 }
 
+# Manage Docker networks
 docker_network() {
-    local action="$1"
-    shift
+  local action="$1"
+  shift
 
-    case "$action" in
-    ls | list)
-        docker network ls
-        ;;
-    create)
-        if [[ $# -lt 1 ]]; then
-            echo "Network name required"
-            return 1
-        fi
-        docker network create "$1"
-        ;;
-    rm | remove)
-        if [[ $# -lt 1 ]]; then
-            echo "Network name required"
-            return 1
-        fi
-        docker network rm "$1"
-        ;;
-    inspect)
-        if [[ $# -lt 1 ]]; then
-            echo "Network name required"
-            return 1
-        fi
-        docker network inspect "$1"
-        ;;
-    *)
-        echo "Unknown network action: $action"
-        return 1
-        ;;
-    esac
+  case "$action" in
+  ls | list)
+    docker network ls
+    ;;
+  create)
+    if [[ $# -lt 1 ]]; then
+      echo "Network name required"
+      return 1
+    fi
+    docker network create "$1"
+    ;;
+  rm | remove)
+    if [[ $# -lt 1 ]]; then
+      echo "Network name required"
+      return 1
+    fi
+    docker network rm "$1"
+    ;;
+  inspect)
+    if [[ $# -lt 1 ]]; then
+      echo "Network name required"
+      return 1
+    fi
+    docker network inspect "$1"
+    ;;
+  *)
+    echo "Unknown network action: $action"
+    return 1
+    ;;
+  esac
 }
 
+# Show resource usage statistics
 docker_stats() {
-    docker stats --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}\t{{.PIDs}}"
+  docker stats --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}\t{{.PIDs}}"
+}
+
+# Remove all unused Docker objects
+docker_prune_all() {
+  echo "Removing all unused Docker objects..."
+  docker system prune -a -f --volumes
+  echo "System pruned"
 }
 
 # Main command handling
 if [[ $# -lt 1 ]]; then
-    usage
+  usage
 fi
 
 command="$1"
@@ -146,43 +205,46 @@ shift
 
 case "$command" in
 clean)
-    docker_clean
-    ;;
+  docker_clean
+  ;;
 stop-all)
-    docker_stop_all
-    ;;
+  docker_stop_all
+  ;;
 remove-all)
-    docker_remove_all
-    ;;
+  docker_remove_all
+  ;;
 logs)
-    if [[ $# -lt 1 ]]; then
-        echo "Error: Container ID/name required"
-        usage
-    fi
-    docker_logs "$1"
-    ;;
-exec)
-    if [[ $# -lt 1 ]]; then
-        echo "Error: Container ID/name required"
-        usage
-    fi
-    docker_exec "$1" "${2:-}"
-    ;;
-build)
-    docker_build "${1:-}" "${2:-}"
-    ;;
-network)
-    if [[ $# -lt 1 ]]; then
-        echo "Error: Network action required"
-        usage
-    fi
-    docker_network "$@"
-    ;;
-stats)
-    docker_stats
-    ;;
-*)
-    echo "Unknown command: $command"
+  if [[ $# -lt 1 ]]; then
+    echo "Error: Container ID/name required"
     usage
-    ;;
+  fi
+  docker_logs "$1"
+  ;;
+exec)
+  if [[ $# -lt 1 ]]; then
+    echo "Error: Container ID/name required"
+    usage
+  fi
+  docker_exec "$1" "${2:-}"
+  ;;
+build)
+  docker_build "${1:-}" "${2:-}"
+  ;;
+network)
+  if [[ $# -lt 1 ]]; then
+    echo "Error: Network action required"
+    usage
+  fi
+  docker_network "$@"
+  ;;
+stats)
+  docker_stats
+  ;;
+prune-all)
+  docker_prune_all
+  ;;
+*)
+  echo "Unknown command: $command"
+  usage
+  ;;
 esac
