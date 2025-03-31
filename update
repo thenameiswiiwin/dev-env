@@ -66,11 +66,38 @@ update_pip_packages() {
 
         # Use jq if available for better parsing, otherwise fall back to awk
         if command_exists jq; then
-          execute "$venv_dir/bin/pip list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 $venv_dir/bin/pip install -U" "Updating packages in venv" ||
-            log "WARN" "Failed to update some packages in venv"
+          # Store packages in a temporary file instead of piping directly
+          tmp_packages=$(mktemp)
+          if $venv_dir/bin/pip list --outdated --format=json | jq -r '.[] | .name' >"$tmp_packages"; then
+            if [[ -s "$tmp_packages" ]]; then
+              # Update packages one by one with better error handling
+              while read -r package; do
+                log "INFO" "Updating package: $package"
+                $venv_dir/bin/pip install -U "$package" || log "WARN" "Failed to update $package"
+              done <"$tmp_packages"
+            else
+              log "INFO" "No outdated packages found in venv"
+            fi
+          else
+            log "WARN" "Failed to get list of outdated packages"
+          fi
+          rm -f "$tmp_packages"
         else
-          execute "$venv_dir/bin/pip list --outdated | tail -n +3 | awk '{print \$1}' | xargs -r -n1 $venv_dir/bin/pip install -U" "Updating packages in venv" ||
-            log "WARN" "Failed to update some packages in venv"
+          # Fall back to awk with improved error handling
+          tmp_packages=$(mktemp)
+          if $venv_dir/bin/pip list --outdated | tail -n +3 | awk '{print $1}' >"$tmp_packages"; then
+            if [[ -s "$tmp_packages" ]]; then
+              while read -r package; do
+                log "INFO" "Updating package: $package"
+                $venv_dir/bin/pip install -U "$package" || log "WARN" "Failed to update $package"
+              done <"$tmp_packages"
+            else
+              log "INFO" "No outdated packages found in venv"
+            fi
+          else
+            log "WARN" "Failed to get list of outdated packages"
+          fi
+          rm -f "$tmp_packages"
         fi
       elif [[ -d "$HOME/.jupyter-env" ]]; then
         log "INFO" "Updating packages in Jupyter environment"
@@ -82,21 +109,47 @@ update_pip_packages() {
       fi
     else
       # Standard pip update for systems without external management
+      # Store packages in a temporary file
+      tmp_packages=$(mktemp)
+
       if command_exists jq; then
-        execute "pip3 list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 pip3 install -U --user" "Updating packages with --user flag" || {
-          log "WARN" "Failed to update packages with --user flag"
-          log "INFO" "Trying with --break-system-packages flag"
-          execute "pip3 list --outdated --format=json | jq -r '.[] | .name' | xargs -r -n1 pip3 install -U --user --break-system-packages" "Updating packages with break-system-packages" ||
-            log "WARN" "Failed to update Python packages"
-        }
+        if pip3 list --outdated --format=json | jq -r '.[] | .name' >"$tmp_packages"; then
+          if [[ -s "$tmp_packages" ]]; then
+            # Try with --user flag first
+            while read -r package; do
+              log "INFO" "Updating package: $package with --user flag"
+              pip3 install -U --user "$package" || {
+                log "WARN" "Failed to update $package with --user flag"
+                log "INFO" "Trying with --break-system-packages flag"
+                pip3 install -U --user --break-system-packages "$package" || log "WARN" "Failed to update $package"
+              }
+            done <"$tmp_packages"
+          else
+            log "INFO" "No outdated Python packages found"
+          fi
+        else
+          log "WARN" "Failed to get list of outdated packages"
+        fi
       else
-        execute "pip3 list --outdated | tail -n +3 | awk '{print \$1}' | xargs -r -n1 pip3 install -U --user" "Updating packages with --user flag" || {
-          log "WARN" "Failed to update packages with --user flag"
-          log "INFO" "Trying with --break-system-packages flag"
-          execute "pip3 list --outdated | tail -n +3 | awk '{print \$1}' | xargs -r -n1 pip3 install -U --user --break-system-packages" "Updating packages with break-system-packages" ||
-            log "WARN" "Failed to update Python packages"
-        }
+        if pip3 list --outdated | tail -n +3 | awk '{print $1}' >"$tmp_packages"; then
+          if [[ -s "$tmp_packages" ]]; then
+            while read -r package; do
+              log "INFO" "Updating package: $package with --user flag"
+              pip3 install -U --user "$package" || {
+                log "WARN" "Failed to update $package with --user flag"
+                log "INFO" "Trying with --break-system-packages flag"
+                pip3 install -U --user --break-system-packages "$package" || log "WARN" "Failed to update $package"
+              }
+            done <"$tmp_packages"
+          else
+            log "INFO" "No outdated Python packages found"
+          fi
+        else
+          log "WARN" "Failed to get list of outdated packages"
+        fi
       fi
+
+      rm -f "$tmp_packages"
     fi
   else
     log "INFO" "pip3 not found, skipping Python updates"
@@ -107,19 +160,36 @@ update_rust() {
   if command_exists rustup; then
     log "INFO" "Updating Rust"
     execute "rustup update" "Updating Rust"
+
+    # Check if a default toolchain is set
+    if ! rustup default &>/dev/null; then
+      log "WARN" "No default Rust toolchain configured"
+      log "INFO" "Setting up stable toolchain as default"
+      execute "rustup default stable" "Configuring default Rust toolchain"
+    fi
   else
     log "INFO" "rustup not found, skipping Rust updates"
+    return 0
   fi
 
   if command_exists cargo; then
     log "INFO" "Updating installed Cargo packages"
-    if command_exists cargo-install-update; then
-      execute "cargo install-update -a" "Updating Cargo packages"
+
+    # Verify cargo is properly configured before proceeding
+    if cargo --version &>/dev/null; then
+      if command_exists cargo-install-update; then
+        execute "cargo install-update -a" "Updating Cargo packages"
+      else
+        log "INFO" "Installing cargo-update"
+        if execute "cargo install cargo-update" "Installing cargo-update"; then
+          execute "cargo install-update -a" "Updating Cargo packages" || log "WARN" "Failed to update Cargo packages"
+        else
+          log "WARN" "Failed to install cargo-update, skipping Cargo package updates"
+        fi
+      fi
     else
-      log "INFO" "Installing cargo-update"
-      execute "cargo install cargo-update" "Installing cargo-update"
-      execute "cargo install-update -a" "Updating Cargo packages" ||
-        log "WARN" "Failed to update Cargo packages"
+      log "WARN" "Cargo appears to be installed but not properly configured"
+      log "INFO" "Please run 'rustup default stable' manually to configure Rust"
     fi
   else
     log "INFO" "cargo not found, skipping Cargo updates"
