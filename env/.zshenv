@@ -30,3 +30,23 @@ export VISUAL=nvim
 # Locale settings
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
+
+# Go environment
+if command -v brew >/dev/null 2>&1; then
+    BREW_GO_PREFIX=$(brew --prefix go 2>/dev/null)
+    if [[ -n "$BREW_GO_PREFIX" && -d "$BREW_GO_PREFIX/libexec" ]]; then
+        export GOROOT="$BREW_GO_PREFIX/libexec"
+    elif [[ -d "/usr/local/opt/go/libexec" ]]; then
+        export GOROOT="/usr/local/opt/go/libexec"
+    elif [[ -d "/opt/homebrew/opt/go/libexec" ]]; then
+        export GOROOT="/opt/homebrew/opt/go/libexec"
+    fi
+else
+    # Fallback to standard locations
+    if [[ -d "/usr/local/go" ]]; then
+        export GOROOT="/usr/local/go"
+    fi
+fi
+
+export GOPATH="$HOME/go"
+export PATH="$PATH:$GOPATH/bin:$GOROOT/bin"
