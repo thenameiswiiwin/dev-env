@@ -19,8 +19,8 @@ log "INFO" "Checking out correct branches for submodules"
 
 # Check and update Neovim config submodule
 if [[ -d "$script_dir/env/.config/nvim" ]]; then
-  log "INFO" "Checking out lazyVim branch for Neovim config"
-  execute "cd \"$script_dir/env/.config/nvim\" && git checkout lazyVim" "Checking out Neovim config branch"
+  log "INFO" "Checking out main branch for Neovim config"
+  execute "cd \"$script_dir/env/.config/nvim\" && git checkout main" "Checking out Neovim config branch"
 else
   log "WARN" "Neovim config directory not found"
 fi

@@ -66,12 +66,11 @@ addToPathFront "$HOME/.cargo/bin"
 addToPathFront "$HOME/.npm-global/bin"
 
 # Go
-if command -v go >/dev/null 2>&1; then
-    export GOPATH=$(go env GOPATH 2>/dev/null || echo "$HOME/go")
-    export GOROOT=$(go env GOROOT 2>/dev/null || echo "/usr/local/go")
-    addToPathFront "$GOPATH/bin"
-    addToPathFront "$GOROOT/bin"
+if command -v brew >/dev/null 2>&1; then
+    export GOROOT="$(brew --prefix go)/libexec"
 fi
+export GOPATH="$HOME/go"
+export PATH="$GOPATH/bin:$GOROOT/bin:$PATH"
 
 # Python
 if [[ -d "$HOME/.python-global-env/bin" ]]; then
