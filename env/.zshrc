@@ -159,6 +159,7 @@ alias ps='ps aux | grep'
 alias kill_port=findandkill
 alias bu='brew cleanup && brew update && brew upgrade && brew cleanup && brew doctor'
 alias bo='brew outdated'
+alias glog='git log --graph --oneline --all'
 
 # OS-specific configurations
 if [[ "$OS" == "Darwin" ]]; then
